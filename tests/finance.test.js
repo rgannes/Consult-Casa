@@ -1,0 +1,6 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const {loan,irrAnnual,consortium}=require('../finance');
+test('SAC quita principal e parcelas caem',()=>{const l=loan(300000,12,240);assert.ok(Math.abs(l.rows.reduce((s,r)=>s+r.amort,0)-300000)<.01);assert.equal(l.rows.at(-1).balance,0);assert.ok(l.first>l.last);});
+test('Price prestações constantes sem correção',()=>{const l=loan(100000,10,120,'Price');assert.ok(Math.abs(l.first-l.last)<.01);assert.equal(l.rows.at(-1).balance,0);});
+test('fluxo recupera taxa efetiva anual e custos elevam taxa',()=>{const l=loan(300000,11,240);assert.ok(Math.abs(irrAnnual([-300000,...l.rows.map(r=>r.payment)])-11)<1e-6);assert.ok(irrAnnual([-297000,...l.rows.map(r=>r.payment+150)])>11);});
+test('juros zero e correção preservam quitação',()=>{assert.equal(loan(1200,0,12).total,1200);for(const sys of ['SAC','Price']){let l=loan(100000,11,240,sys,100,5);assert.equal(l.rows.at(-1).balance,0);assert.ok(l.rows.every(r=>r.amort>=0));}});
+test('consórcio reajusta após aniversário e inclui lance explicitamente',()=>{let c=consortium(100000,20,2,100,10,20,5000);assert.equal(c.base,1220);assert.ok(Math.abs(c.rows[12].payment-1342)<1e-6);assert.ok(Math.abs(c.available-110000)<1e-6);assert.ok(c.rows[19].payment>5000);});
