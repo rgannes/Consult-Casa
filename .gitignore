@@ -1,0 +1,10 @@
+# Arquivos privados: mantenha-os fora da pasta pública antes de publicar.
+private/
+backups/
+*.private.json
+consult-casa-dados*.json
+consult-casa-configuracao*.json
+consult-casa-dados-originais.json
+__pycache__/
+*.pyc
+.DS_Store

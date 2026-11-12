@@ -1,7 +1,33 @@
-# Consult Casa
+# VECTO Consultoria — Consult Casa
 
-Ferramenta estática em português para consultoria financeira de construção em São José dos Campos/SP. Premissas fictícias, editáveis e claramente identificadas. Sem dependências externas.
+Ferramenta estática em português para planejamento financeiro imobiliário. HTML, CSS e JavaScript, sem dependências de execução. Os cenários de orçamento são hipóteses de planejamento de 150 m², **não cotações técnicas verificadas**. Nenhum dado real de cliente é incluído no código.
 
-Abra `index.html` no navegador, ou na pasta `/workspace/Consult-Casa` execute `npm start` (Python 3, porta 3000). A aplicação salva dados no navegador; exporte JSON para backup e transferência. Para compartilhar, entregue a pasta completa ou publique em hospedagem estática, sem colocar dados privados no repositório.
+## Executar e verificar
 
-`npm test` valida os cálculos financeiros. Consulte `docs/guia.md` para escopo, premissas, custos, etapas e limitações, e `docs/fontes.md` para pesquisa pendente. Não houve validação de preços reais nem publicação do site. Não usar o simulador como proposta bancária ou orçamento técnico.
+Na pasta do projeto:
+
+```sh
+npm start
+npm test
+```
+
+O servidor usa Python 3, porta 3000. Os testes usam apenas o test runner nativo do Node; não é necessário `npm install`. Também é possível abrir `index.html` diretamente em navegador que permita arquivos locais, mas servidor local é recomendado para comportamento consistente de armazenamento.
+
+Para verificação adicional da interface, com Python Playwright e Chromium já instalados: `python tests/browser_smoke.py`. O teste é opcional, não instala pacotes e usa somente dados fictícios. `CHROMIUM_PATH` pode apontar para o executável instalado.
+
+## Versão 2
+
+- 11 grupos com metadados e subitens incluídos/adicionais.
+- Métodos exclusivos de construção e contingência, sem somar a alternativa inativa.
+- Patrimônio, ajuda familiar opcional, poupança, rendas líquida/brutas, despesas, reserva separada, referências de apartamentos e horizonte.
+- Cenários de orçamento com confirmação antes da troca, salvamento e recuperação.
+- JSON v2 com validação, backup local anterior, importação privada e migração v1 sem apagar gastos.
+- Motor de financiamento em `finance.js` inalterado nesta etapa.
+
+Leia o [manual de uso](docs/uso-v2.html) e a [estrutura, formatos e checklist de verificação](docs/estrutura-v2.md). Os materiais PDF/Word antigos são históricos da v1; seus exemplos não representam os novos cenários.
+
+## Privacidade
+
+Dados ficam no `localStorage` do navegador. Exporte JSON para backup e transferência privada. Não há sincronização, analytics, API de dados ou envio automático. Não commitar nomes, configurações privadas, backups, capturas ou informações financeiras reais. O repositório e os arquivos estáticos publicados são públicos; dados escolhidos pelo usuário não devem ser colocados neles.
+
+Esta alteração foi preparada em branch de trabalho. Não fazer merge ou publicar sem revisão.

@@ -1,5 +1,7 @@
 # Planejamento financeiro da casa — São José dos Campos/SP
 
+> Material histórico da versão 1. Para o orçamento de 11 grupos, os cenários de 150 m², a reserva preservada e a operação atual, leia [estrutura-v2.md](estrutura-v2.md) e o [manual de uso v2](uso-v2.html). Os exemplos abaixo não foram substituídos pelos novos cenários.
+
 Material para a economista e o casal. Versão inicial: 22/10/2026 (horário de São Paulo). Todas as premissas monetárias são fictícias e editáveis. Não são preços pesquisados, laudo, orçamento de engenharia, recomendação de crédito ou aprovação de financiamento. As fontes oficiais não puderam ser consultadas neste ambiente por restrição de rede. Antes de apresentar um orçamento como local e atualizado, complete a pesquisa descrita em fontes.md.
 
 A economista organiza capacidade financeira, alternativas e riscos. Arquitetos e engenheiros habilitados definem viabilidade técnica, projetos, quantitativos, especificações, responsabilidade e fiscalização conforme suas atribuições. O casal escolhe fornecedores, modalidade financeira, padrão da casa e autoriza todos os pagamentos. Não há gestão de recursos pela consultora.

@@ -1,25 +1,325 @@
-const defaults={city:'São José dos Campos – SP',reference:'2026-10',area:120,landArea:250,land:220000,m2:3200,ceiling:900000,cash:400000,income:18000,essential:8000,emergencyMonths:6,contingency:15,inflation:5,delay:12,credit:300000,annual:11,months:240,system:'SAC',fee:150,upfront:3000,index:0,admin:20,fund:2,consMonths:180,consIndex:5,award:36,bid:0,categories:[['Diligência do terreno, sondagem e topografia',7000],['ITBI, escritura/contrato e registro',12000],['Arquitetura, projetos complementares e compatibilização',25000],['Engenharia, responsabilidade técnica e gestão',25000],['Aprovações, taxas, alvarás e certificados',6000],['Canteiro, ligações provisórias e logística',12000],['Seguro de obra e segurança',5000],['Regularização fiscal/previdenciária da obra',12000],['Habite-se, averbação e documentação final',7000],['Ligações definitivas, calçada e paisagismo',15000],['Móveis, eletros e decoração',45000],['Aluguel durante a obra, mudança e sobreposição',24000]],expenses:[]};
-let state=structuredClone(defaults);try{const s=JSON.parse(localStorage.getItem('consult-casa-v1'));if(s)state={...state,...s};}catch{}
-const $=id=>document.getElementById(id), money=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function save(){try{localStorage.setItem('consult-casa-v1',JSON.stringify(state));$('storageMessage').textContent='Dados salvos neste navegador.';}catch{$('storageMessage').textContent='Não foi possível salvar localmente. Exporte os dados JSON.';}}
-function show(id){['base','budget','scenarios','actual','guide'].forEach(x=>$(x).classList.toggle('hidden',x!==id));}
-function field(id,label,type='number',max){const el=document.createElement('label');el.textContent=label;const input=document.createElement(id==='system'?'select':'input');if(id==='system'){input.innerHTML='<option>SAC</option><option>Price</option>';}else{input.type=type;if(type==='number'){input.min=0;input.step='any';if(max)input.max=max;}}input.value=state[id];input.onchange=()=>{if(!input.checkValidity()){input.reportValidity();return;}state[id]=type==='number'&&id!=='system'?Number(input.value):input.value;if(['months','consMonths'].includes(id))state[id]=Math.max(1,Math.min(600,Math.round(state[id])));state.award=Math.max(1,Math.min(state.consMonths,Math.round(state.award)));save();render();};el.append(input);return el;}
-[['city','Cidade / UF','text'],['reference','Data-base das hipóteses','month'],['area','Área construída (m²)'],['landArea','Área do terreno (m²)'],['land','Preço do terreno (R$)'],['m2','Construção por m² (R$)'],['ceiling','Limite total para o projeto (R$)'],['cash','Recursos líquidos disponíveis (R$)'],['income','Renda líquida mensal familiar (R$)'],['essential','Despesas essenciais mensais (R$)'],['emergencyMonths','Reserva familiar (meses)'],['contingency','Contingência da obra (%)'],['inflation','Estresse de alta de custos anual (%)'],['delay','Horizonte para estresse (meses)']].forEach(a=>$('fields').append(field(...a)));
-[['credit','Crédito solicitado / carta (R$)'],['annual','Juros efetivos anuais (%)'],['months','Prazo do financiamento (meses)','number',600],['system','Amortização','text'],['fee','Seguro + encargos mensais fixos (R$)'],['upfront','Custos iniciais exclusivos do crédito (R$)'],['index','Correção anual simulada do saldo (%)'],['admin','Administração total do consórcio (%)'],['fund','Fundo de reserva total (%)'],['consMonths','Prazo consórcio (meses)','number',600],['consIndex','Reajuste anual do consórcio (%)'],['award','Mês hipotético de contemplação'],['bid','Lance com recursos próprios (R$)']].forEach(a=>$('financeFields').append(field(...a)));
-function budget(){let construction=state.area*state.m2,other=state.categories.reduce((s,c)=>s+c[1],0),base=construction+other,reserve=base*state.contingency/100;return{construction,base,reserve,total:base+reserve,emergency:state.essential*state.emergencyMonths,stress:(base+reserve)*Math.pow(1+state.inflation/100,state.delay/12)};}
+'use strict';
+const M = CasaModel;
+const $ = id => document.getElementById(id);
+const money = value => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const clone = value => JSON.parse(JSON.stringify(value));
+let state = M.defaults(), storageLocked = false;
+let startupMessage = '';
+try {
+  const loaded = M.load(localStorage);
+  state = loaded.state;
+  if (loaded.migrated) startupMessage = 'Dados v1 migrados: gastos e total preservados; a cópia v1 original continua no navegador. Revise a classificação dos subitens.';
+} catch (error) {
+  storageLocked = true;
+  startupMessage = `Não foi possível carregar os dados locais: ${error.message} Nada foi sobrescrito. Baixe os dados locais originais antes de recuperar um backup.`;
+}
+function message(text) { $('storageMessage').textContent = text; }
+function show(id) {
+  ['base', 'budget', 'scenarios', 'actual', 'guide'].forEach(key => $(key).classList.toggle('hidden', key !== id));
+}
+function commit(mutator, budgetEdit = false, backup = false) {
+  const next = clone(state);
+  try {
+    mutator(next);
+    if (budgetEdit) next.scenarioName = 'personalizado';
+    const checked = M.validate(next);
+    if (storageLocked) throw new Error('Armazenamento local bloqueado para preservar dados originais. Baixe os originais e importe um backup válido.');
+    M.persist(localStorage, checked, backup);
+    state = checked;
+    render(); message('Dados salvos somente neste navegador. Exporte JSON para guardar um backup privado.');
+    return true;
+  } catch (error) { message(error.message); render(); return false; }
+}
+const baseFields = [
+  ['city', 'Cidade / UF', 'text'], ['reference', 'Data-base das hipóteses', 'month'],
+  ['landArea', 'Área do terreno (m²)'], ['ceiling', 'Limite total do projeto (R$; zero = não definido)'],
+  ['cash', 'Patrimônio inicial disponível para o projeto (R$)'],
+  ['familyHelp', 'Ajuda familiar potencial (R$; não garantida)'],
+  ['includeFamilyHelp', 'Incluir ajuda familiar, condicionada à confirmação', 'checkbox'],
+  ['monthlySavings', 'Capacidade média de poupança mensal (R$)'],
+  ['income', 'Renda líquida familiar mensal (R$)'],
+  ['grossIncome1', 'Renda bruta comprovável — pessoa 1 (R$/mês)'],
+  ['grossIncome2', 'Renda bruta comprovável — pessoa 2 (R$/mês)'],
+  ['essential', 'Despesas familiares mensais (R$)'],
+  ['preservedReserve', 'Reserva financeira preservada (R$)'],
+  ['reserveAlreadyExcluded', 'A reserva já está fora do patrimônio disponível', 'checkbox'],
+  ['currentApartment', 'Referência do apartamento atual (R$)'],
+  ['largerApartment', 'Referência do apartamento maior (R$)'],
+  ['horizonMonths', 'Horizonte temporal para poupança (meses)', 'integer', 600],
+  ['inflation', 'Estresse de alta de custos anual (%)', 'number', 100],
+  ['delay', 'Horizonte do estresse de custos (meses)', 'integer', 600]
+];
+const financeFields = [
+  ['credit', 'Crédito solicitado / carta (R$)'], ['annual', 'Juros efetivos anuais (%)', 'number', 100],
+  ['months', 'Prazo do financiamento (meses)', 'positiveInteger', 600],
+  ['system', 'Amortização', ['SAC', 'Price']], ['fee', 'Seguro + encargos mensais fixos (R$)'],
+  ['upfront', 'Custos iniciais exclusivos do crédito (R$)'],
+  ['index', 'Correção anual simulada do saldo (%)', 'number', 100],
+  ['admin', 'Administração total do consórcio (%)'], ['fund', 'Fundo de reserva total (%)'],
+  ['consMonths', 'Prazo do consórcio (meses)', 'positiveInteger', 600],
+  ['consIndex', 'Reajuste anual do consórcio (%)', 'number', 100],
+  ['award', 'Mês hipotético de contemplação', 'positiveInteger', 600], ['bid', 'Lance com recursos próprios (R$)']
+];
+function field(id, label, type = 'number', max = 1e12) {
+  const wrapper = document.createElement('label');
+  wrapper.textContent = label;
+  const input = document.createElement(Array.isArray(type) ? 'select' : 'input');
+  input.id = `field-${id}`;
+  if (Array.isArray(type)) {
+    type.forEach(option => {
+      const opt = document.createElement('option');
+      [opt.value, opt.textContent] = Array.isArray(option) ? option : [option, option];
+      input.append(opt);
+    });
+  } else if (type === 'checkbox') {
+    input.type = 'checkbox'; input.checked = state[id]; wrapper.classList.add('check');
+  } else {
+    input.type = ['integer', 'positiveInteger'].includes(type) ? 'number' : type;
+    if (input.type === 'number') {
+      input.min = type === 'positiveInteger' ? 1 : 0;
+      input.max = max;
+      input.step = ['integer', 'positiveInteger'].includes(type) ? 1 : 'any'; input.required = true;
+    }
+  }
+  if (type !== 'checkbox') input.value = state[id];
+  input.onchange = () => {
+    if (!input.checkValidity()) { input.reportValidity(); return; }
+    const value = type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
+    if (id === 'scenarioName') { switchPreset(value); return; }
+    commit(next => {
+      next[id] = value;
+      if (id === 'consMonths') next.award = Math.min(next.award, value);
+    }, ['area', 'm2', 'constructionMode', 'contingencyMode', 'contingencyPercent'].includes(id));
+  };
+  wrapper.append(input); return wrapper;
+}
+function renderFields() {
+  $('fields').replaceChildren(...baseFields.map(args => field(...args)));
+  $('financeFields').replaceChildren(...financeFields.map(args => field(...args)));
+  $('budgetControls').replaceChildren(
+    field('scenarioName', 'Cenário de orçamento', [['economico', 'Econômico'], ['intermediario', 'Intermediário'], ['elevado', 'Elevado'], ['personalizado', 'Personalizado']]),
+    field('area', 'Área construída (m²)'), field('m2', 'Construção por m² (R$)'),
+    field('constructionMode', 'Método ativo da construção', [['area', 'Área × custo por m²'], ['global', 'Orçamento global recebido']]),
+    field('contingencyMode', 'Método ativo da contingência', [['manual', 'Valor manual'], ['percent', 'Percentual da base selecionada']]),
+    field('contingencyPercent', 'Contingência sobre a base (%)')
+  );
+  const base = $('contingencyBase'); base.replaceChildren();
+  state.groups.filter(g => g.id !== 'contingency').forEach(group => {
+    const label = document.createElement('label'); label.className = 'check';
+    const input = document.createElement('input'); input.type = 'checkbox';
+    input.checked = state.contingencyBaseIds.includes(group.id);
+    input.disabled = state.contingencyMode !== 'percent';
+    input.onchange = () => commit(next => {
+      next.contingencyBaseIds = input.checked ? [...next.contingencyBaseIds, group.id] : next.contingencyBaseIds.filter(id => id !== group.id);
+    }, true);
+    label.append(input, document.createTextNode(group.label)); base.append(label);
+  });
+}
+function editField(groupIndex, itemIndex, key, value, type = 'text', disabled = false) {
+  const data = `data-group="${groupIndex}" data-item="${itemIndex}" data-key="${key}"`;
+  if (type === 'textarea') return `<textarea ${data}>${esc(value)}</textarea>`;
+  if (type === 'status') return `<select ${data}>${M.STATUSES.map(s => `<option ${value === s ? 'selected' : ''}>${s}</option>`).join('')}</select>`;
+  if (type === 'checkbox') return `<input ${data} type="checkbox" ${value ? 'checked' : ''}>`;
+  return `<input ${data} type="${type}" value="${esc(value)}" ${type === 'number' ? 'min="0" max="1000000000000" step="any" required' : ''} ${disabled ? 'disabled' : ''}>`;
+}
+function metadataFields(g, item, value) {
+  return `<label>Descrição${editField(g, item, 'description', value.description)}</label>
+    <label>Fonte${editField(g, item, 'source', value.source)}</label>
+    <label>Data de referência${editField(g, item, 'referenceDate', value.referenceDate, 'date')}</label>
+    <label>Status${editField(g, item, 'status', value.status, 'status')}</label>
+    <label>Inclusões / exclusões e observações${editField(g, item, 'notes', value.notes, 'textarea')}</label>`;
+}
+function renderGroups(b) {
+  const open = [...$('categories').querySelectorAll('details[open]')].map(d => d.id);
+  $('categories').innerHTML = state.groups.map((g, i) => {
+    const calculated = (g.id === 'construction' && state.constructionMode === 'area') || (g.id === 'contingency' && state.contingencyMode === 'percent');
+    const baseLabel = g.id === 'construction' ? 'Orçamento global recebido (R$; ativo apenas no método global)' : g.id === 'contingency' ? 'Contingência manual (R$; ativa apenas no modo manual)' : 'Valor-base do grupo (R$)';
+    return `<details id="group-${g.id}" ${open.includes(`group-${g.id}`) ? 'open' : ''}><summary>${i + 1}. ${esc(g.label)} — ${money(b.values[g.id])}</summary>
+      <div class="grid group-fields"><label>${baseLabel}${editField(i, -1, 'value', g.value, 'number', calculated)}</label>${metadataFields(i, -1, g)}</div>
+      <p class="small">${calculated ? 'Valor-base calculado pelo método ativo; o valor manual é guardado, mas não é somado. ' : ''}Subitens já incluídos apenas detalham a proposta; somente subitens marcados como adicionais são somados ao valor-base. Status não altera o orçamento nem cria um pagamento no controle de gastos.</p>
+      ${g.subitems.map((item, j) => `<div class="subitem"><h4>Subitem ${j + 1}</h4><div class="grid"><label>Valor do subitem (R$)${editField(i, j, 'value', item.value, 'number')}</label>${metadataFields(i, j, item)}<label class="check">${editField(i, j, 'includedInGroup', item.includedInGroup, 'checkbox')}Já incluído no valor-base (não somar novamente)</label></div><button class="danger" data-delete-group="${i}" data-delete-item="${j}">Excluir subitem</button></div>`).join('')}
+      <button data-add-group="${i}">Adicionar subitem</button></details>`;
+  }).join('');
+}
+$('categories').onchange = event => {
+  const input = event.target;
+  if (!input.dataset.key) return;
+  if (!input.checkValidity()) { input.reportValidity(); return; }
+  commit(next => {
+    const group = next.groups[Number(input.dataset.group)];
+    const itemIndex = Number(input.dataset.item);
+    const target = itemIndex < 0 ? group : group.subitems[itemIndex];
+    target[input.dataset.key] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
+  }, true);
+};
+$('categories').onclick = event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  if (button.dataset.addGroup !== undefined) commit(next => {
+    next.groups[Number(button.dataset.addGroup)].subitems.push({
+      id: uniqueId(), description: 'Novo subitem', value: 0, source: '', referenceDate: '',
+      status: 'estimado', notes: '', includedInGroup: true
+    });
+  }, true);
+  if (button.dataset.deleteGroup !== undefined && confirm('Excluir este subitem do orçamento? Os gastos registrados serão preservados.')) {
+    commit(next => next.groups[Number(button.dataset.deleteGroup)].subitems.splice(Number(button.dataset.deleteItem), 1), true, true);
+  }
+};
+function card(title, value, detail) {
+  return `<article class="card"><h3>${esc(title)}</h3><div class="number">${money(value)}</div><p>${esc(detail)}</p></article>`;
+}
+function renderResources(b, r) {
+  $('resourceSummary').innerHTML = card('Disponível hoje sem ajuda', r.nowWithoutHelp, `Reserva descontada do patrimônio: ${money(r.deduction)}. Se já separada, o desconto é zero.`) +
+    card('Ajuda familiar considerada', r.help, 'Opcional e condicionada à confirmação. Compare também sem ajuda.') +
+    card('Poupança futura projetada', r.futureSavings, `${state.horizonMonths} meses × ${money(state.monthlySavings)}. Sem rentabilidade; aporte não somado novamente à renda.`) +
+    card('Recursos no horizonte', r.projected, `Sem ajuda: ${money(r.projectedWithoutHelp)}. Não é dinheiro disponível hoje. Falta para o projeto: ${money(Math.max(0, b.total - r.projected))}.`) +
+    card('Diferença entre apartamentos', state.largerApartment - state.currentApartment, 'Somente referência: não representa receita de venda, patrimônio líquido ou custo de troca.');
+  const warnings = [];
+  if (r.reserveShortfall) warnings.push(`A reserva excede o patrimônio informado em ${money(r.reserveShortfall)}; revise a disponibilidade.`);
+  if (state.monthlySavings > Math.max(0, state.income - state.essential)) warnings.push('A poupança informada supera renda líquida menos despesas. Confirme a sustentabilidade dos aportes; a renda não é somada à poupança.');
+  if (state.includeFamilyHelp) warnings.push('O cenário inclui ajuda familiar ainda condicionada à confirmação.');
+  $('resourceWarnings').textContent = warnings.join(' ');
+}
 let schedules;
-function render(){const b=budget();$('categories').innerHTML='<tr><td>Construção: '+state.area+' m² × '+money(state.m2)+'</td><td>'+money(b.construction)+'</td></tr>'+state.categories.map((c,i)=>`<tr><td>${esc(c[0])}</td><td><input aria-label="${esc(c[0])}" type="number" min="0" step="100" value="${c[1]}" onchange="state.categories[${i}][1]=Math.max(0,Number(this.value));save();render()"></td></tr>`).join('');
-$('totals').innerHTML=card('Casa sem terreno',b.total,`Inclui ${money(b.reserve)} de contingência.`)+card('Casa + terreno',b.total+state.land,'Não inclui custo do crédito.')+card('Reserva familiar separada',b.emergency,'Não usar para cobrir a obra.')+card('Estresse no horizonte',b.stress+state.land,'Alta aplicada à casa inteira; terreno mantido. Não é fluxo de desembolso.');
-const p=Math.min(state.credit,b.base),p2=Math.min(state.credit,b.base+state.land),a=Finance.loan(p,state.annual,state.months,state.system,state.fee,state.index),a2=Finance.loan(p2,state.annual,state.months,state.system,state.fee,state.index),c=Finance.consortium(state.credit,state.admin,state.fund,state.consMonths,state.consIndex,state.award,state.bid);schedules={a,a2,c};
-function financed(title,principal,l,total){const cet=Finance.irrAnnual([-(principal-state.upfront),...l.rows.map(r=>r.payment)]);return card(title,total-principal+l.total+state.upfront,`Desembolso nominal total: custo do projeto + juros e encargos; reserva de obra incluída. Recursos próprios para projeto: ${money(total-principal+state.upfront)}. Reserva familiar adicional: ${money(b.emergency)}. Primeira parcela: ${money(l.first)}; última: ${money(l.last)}. Primeira/renda: ${state.income?(l.first/state.income*100).toFixed(1)+'%':'indefinido'}. Taxa anual implícita do fluxo simplificado: ${cet===null?'não calculável':cet.toFixed(2)+'%'}. Não substitui CET oficial; indexador futuro é hipótese.`);}
-$('results').innerHTML=card('1 · Recursos próprios',b.total+state.land,`Compra de terreno incluída. Necessidade com reserva familiar: ${money(b.total+state.land+b.emergency)}. Falta de recursos hoje: ${money(Math.max(0,b.total+state.land+b.emergency-state.cash))}. Sem CET de crédito; há custo de oportunidade, inflação e risco de consumir liquidez.`)+financed('2 · Terreno já disponível',p,a,b.total)+financed('3 · Terreno + construção',p2,a2,b.total+state.land)+card('4 · Consórcio / terreno disponível',c.total+Math.max(0,b.total-c.available),`Pagamentos ao grupo: ${money(c.total)}. Carta estimada no mês ${state.award}: ${money(c.available)}. Complemento da obra: ${money(Math.max(0,b.total-c.available))}. Parcela inicial sem lance: ${money(c.base)}. Contemplação é apenas hipótese. Lance próprio foi somado como saída conservadora, SEM reduzir parcelas: NÃO é proposta de consórcio nem custo contratual definitivo. Recalcular conforme contrato antes de comparar totais. Não há CET bancário equivalente nem promessa de ausência de custos. Seguro não incluído.`);
-$('schedule').innerHTML=Array.from({length:Math.min(12,Math.max(state.months,state.consMonths))},(_,i)=>`<tr><td>${i+1}</td><td>${money(a.rows[i]?.payment||0)}</td><td>${money(a2.rows[i]?.payment||0)}</td><td>${money(c.rows[i]?.payment||0)}</td></tr>`).join('');renderExpenses();}
-function card(t,v,s){return `<article class="card"><h3>${esc(t)}</h3><div class="number">${money(v)}</div><p>${esc(s)}</p></article>`;}
-const names=['Terreno','Construção',...state.categories.map(c=>c[0])];$('category').innerHTML=names.map(n=>`<option>${esc(n)}</option>`).join('');$('date').value=new Date().toISOString().slice(0,10);
-$('expenseForm').onsubmit=e=>{e.preventDefault();state.expenses.push({id:Date.now()+Math.random(),date:$('date').value,category:$('category').value,description:$('description').value,amount:Number($('amount').value),status:$('status').value});save();renderExpenses();$('description').value='';$('amount').value='';};
-function renderExpenses(){const b=budget(),paid=state.expenses.filter(e=>e.status==='Pago').reduce((s,e)=>s+e.amount,0),pending=state.expenses.filter(e=>e.status!=='Pago').reduce((s,e)=>s+e.amount,0);$('actualSummary').innerHTML=card('Pago',paid,'Saídas registradas.')+card('Contratado a pagar',pending,'Compromissos registrados.')+card('Saldo do orçamento total',b.total+state.land-paid-pending,'Inclui terreno e contingência. Não representa caixa disponível nem custo estimado para concluir.');$('expenses').innerHTML=state.expenses.map((e,i)=>`<tr><td>${esc(e.date)}</td><td>${esc(e.category)}</td><td>${esc(e.description)}</td><td>${money(e.amount)}</td><td>${esc(e.status)}</td><td><button class="danger" onclick="state.expenses.splice(${i},1);save();renderExpenses()">Excluir</button></td></tr>`).join('');const budgets=[['Terreno',state.land],['Construção',b.construction],...state.categories];$('variance').innerHTML='<table><tr><th>Categoria</th><th>Planejado</th><th>Pago + a pagar</th><th>Saldo</th></tr>'+budgets.map(([n,v])=>{let spent=state.expenses.filter(e=>e.category===n).reduce((s,e)=>s+e.amount,0);return `<tr><td>${esc(n)}</td><td>${money(v)}</td><td>${money(spent)}</td><td>${money(v-spent)}</td></tr>`;}).join('')+'</table>';}
-function download(name,data,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
-function exportData(){download('consult-casa-dados.json',JSON.stringify({version:1,state},null,2),'application/json');}
-$('import').onchange=async e=>{try{const obj=JSON.parse(await e.target.files[0].text());if(obj.version!==1||!obj.state)throw Error();const x=obj.state;for(const [k,v] of Object.entries(defaults)){if(typeof v==='number'&&(!Number.isFinite(x[k])||x[k]<0))throw Error();if(typeof v==='string'&&typeof x[k]!=='string')throw Error();}if(!['SAC','Price'].includes(x.system)||x.months<1||x.months>600||x.consMonths<1||x.consMonths>600||x.award<1||x.award>x.consMonths)throw Error();if(!Array.isArray(x.categories)||x.categories.length!==defaults.categories.length||x.categories.some((c,i)=>!Array.isArray(c)||c[0]!==defaults.categories[i][0]||!Number.isFinite(c[1])||c[1]<0))throw Error();if(!Array.isArray(x.expenses)||x.expenses.some(e=>!names.includes(e.category)||typeof e.description!=='string'||typeof e.date!=='string'||!['Pago','A pagar'].includes(e.status)||!Number.isFinite(e.amount)||e.amount<=0))throw Error();state=x;save();location.reload();}catch{alert('Arquivo inválido ou incompatível. Os dados existentes foram preservados.');}};
-function downloadSchedule(){let rows=['Mes;Financiamento construcao;Financiamento terreno e construcao;Consorcio'];for(let i=0;i<Math.max(state.months,state.consMonths);i++)rows.push([i+1,...[schedules.a,schedules.a2,schedules.c].map(s=>(s.rows[i]?.payment||0).toFixed(2).replace('.',','))].join(';'));download('cronograma.csv','\ufeff'+rows.join('\n'),'text/csv;charset=utf-8');}
-render();
+function renderFinancing(b, r) {
+  const p = Math.min(state.credit, b.baseNoLand);
+  const p2 = Math.min(state.credit, b.total - b.contingency);
+  const a = Finance.loan(p, state.annual, state.months, state.system, state.fee, state.index);
+  const a2 = Finance.loan(p2, state.annual, state.months, state.system, state.fee, state.index);
+  const c = Finance.consortium(state.credit, state.admin, state.fund, state.consMonths, state.consIndex, state.award, state.bid);
+  schedules = { a, a2, c };
+  function financed(title, principal, l, total) {
+    const rate = Finance.irrAnnual([-(principal - state.upfront), ...l.rows.map(row => row.payment)]);
+    return card(title, total - principal + l.total + state.upfront,
+      `Desembolso nominal: projeto + juros e encargos; contingência incluída. Recursos próprios necessários ao projeto: ${money(total - principal + state.upfront)}; falta hoje: ${money(Math.max(0, total - principal + state.upfront - r.now))}. Reserva preservada não é descontada novamente. Primeira parcela: ${money(l.first)}; última: ${money(l.last)}. Primeira/renda líquida: ${state.income ? (l.first / state.income * 100).toFixed(1) + '%' : 'indefinido'}. Taxa anual implícita: ${rate === null ? 'não calculável' : rate.toFixed(2) + '%'}. Não substitui CET oficial nem análise da renda bruta comprovável pelo banco.`);
+  }
+  $('results').innerHTML = card('1 · Recursos próprios', b.total,
+    `Inclui terreno e contingência. Falta hoje: ${money(Math.max(0, b.total - r.now))}. Falta no horizonte: ${money(Math.max(0, b.total - r.projected))}. Reserva preservada já tratada na disponibilidade, sem dupla dedução. Ajuda familiar opcional e não garantida. Sem CET de crédito.`) +
+    financed('2 · Terreno já disponível', p, a, b.withoutLand) +
+    financed('3 · Terreno + construção', p2, a2, b.total) +
+    card('4 · Consórcio / terreno disponível', c.total + Math.max(0, b.withoutLand - c.available),
+      `Pagamentos ao grupo: ${money(c.total)}. Carta hipotética no mês ${state.award}: ${money(c.available)}. Complemento: ${money(Math.max(0, b.withoutLand - c.available))}. Parcela inicial sem lance: ${money(c.base)}. Contemplação não garantida. Lance próprio somado SEM reduzir parcelas, aproximação conservadora que exige recálculo contratual. Não há CET bancário equivalente. Seguro não incluído.`);
+  $('schedule').innerHTML = Array.from({ length: Math.min(12, Math.max(state.months, state.consMonths)) }, (_, i) =>
+    `<tr><td>${i + 1}</td><td>${money(a.rows[i]?.payment || 0)}</td><td>${money(a2.rows[i]?.payment || 0)}</td><td>${money(c.rows[i]?.payment || 0)}</td></tr>`).join('');
+}
+function renderExpenses(b) {
+  const selected = $('category').value;
+  $('category').innerHTML = state.groups.map(g => `<option value="${g.id}">${esc(g.label)}</option>`).join('');
+  if (selected) $('category').value = selected;
+  const paid = state.expenses.filter(e => e.status === 'Pago').reduce((sum, e) => sum + e.amount, 0);
+  const pending = state.expenses.filter(e => e.status === 'A pagar').reduce((sum, e) => sum + e.amount, 0);
+  $('actualSummary').innerHTML = card('Pago', paid, 'Saídas registradas.') + card('Contratado a pagar', pending, 'Compromissos registrados.') +
+    card('Saldo do orçamento total', b.total - paid - pending, 'Inclui os 11 grupos. Não representa caixa nem custo estimado para concluir.');
+  $('expenses').innerHTML = state.expenses.map((e, i) => `<tr><td>${esc(e.date)}</td><td>${esc(e.category)}</td><td>${esc(e.description)}</td><td>${money(e.amount)}</td><td>${esc(e.status)}</td><td><button class="danger" data-expense="${i}">Excluir</button></td></tr>`).join('');
+  $('variance').innerHTML = '<table><tr><th>Grupo</th><th>Planejado</th><th>Pago + a pagar</th><th>Saldo</th></tr>' + state.groups.map(g => {
+    const spent = state.expenses.filter(e => e.groupId === g.id).reduce((sum, e) => sum + e.amount, 0);
+    return `<tr><td>${esc(g.label)}</td><td>${money(b.values[g.id])}</td><td>${money(spent)}</td><td>${money(b.values[g.id] - spent)}</td></tr>`;
+  }).join('') + '</table>';
+}
+$('expenseForm').onsubmit = event => {
+  event.preventDefault();
+  if (!$('expenseForm').reportValidity()) return;
+  const group = state.groups.find(g => g.id === $('category').value);
+  if (commit(next => next.expenses.push({ id: uniqueId(), date: $('date').value, groupId: group.id,
+    category: group.label, description: $('description').value, amount: Number($('amount').value), status: $('status').value }))) {
+    $('description').value = ''; $('amount').value = '';
+  }
+};
+$('expenses').onclick = event => {
+  const button = event.target.closest('button[data-expense]');
+  if (button && confirm('Excluir este gasto? A versão anterior ficará no backup local.')) commit(next => next.expenses.splice(Number(button.dataset.expense), 1), false, true);
+};
+function render() {
+  const b = M.budget(state), r = M.resources(state);
+  renderFields(); renderGroups(b); renderResources(b, r); renderFinancing(b, r); renderExpenses(b);
+  $('totals').innerHTML = card('Total dos 11 grupos', b.total, `Contingência incluída uma única vez: ${money(b.contingency)}.`) +
+    card('Casa sem terreno', b.withoutLand, 'O terreno existente é patrimônio, não desembolso adicional nos cenários 2 e 4.') +
+    card('Base da contingência', b.contingencyBase, state.contingencyMode === 'percent' ? `${state.contingencyPercent}% desta base + subitens adicionais da contingência.` : 'Modo manual: a base não altera a contingência informada.') +
+    card('Estresse no horizonte', b.stress, 'Alta aplicada aos grupos sem terreno; terreno fixo. Não é cronograma de desembolsos.');
+  if (state.ceiling > 0) $('totals').innerHTML += card('Saldo do limite do projeto', state.ceiling - b.total, 'Antes dos custos de crédito; a reserva familiar não integra o custo da casa.');
+  const previous = $('savedScenarios').value;
+  $('savedScenarios').innerHTML = '<option value="">Selecione um cenário salvo</option>' + state.savedScenarios.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  $('savedScenarios').value = previous;
+}
+function uniqueId() { return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
+function switchPreset(name) {
+  if (name === state.scenarioName) return;
+  if (name === 'personalizado') { commit(next => { next.scenarioName = name; }); return; }
+  if (!confirm('Substituir o orçamento por esta hipótese de 150 m²? O orçamento atual será salvo para recuperação; os gastos e as premissas financeiras serão mantidos.')) { render(); return; }
+  commit(next => {
+    const saved = M.saveScenario(next, `Antes de trocar para ${name} (${new Date().toLocaleString('pt-BR')})`, uniqueId());
+    Object.assign(next, M.applyPreset(saved, name));
+  }, false, true);
+}
+function saveCurrentScenario() {
+  const name = $('snapshotName').value.trim();
+  if (!name) { message('Informe um nome para salvar o cenário.'); return; }
+  commit(next => Object.assign(next, M.saveScenario(next, name, uniqueId())));
+}
+function recoverScenario() {
+  const id = $('savedScenarios').value;
+  if (!id) { message('Selecione um cenário salvo.'); return; }
+  if (confirm('Recuperar premissas e orçamento do cenário selecionado? Os gastos atuais serão mantidos; a versão anterior ficará no backup local.')) {
+    commit(next => Object.assign(next, M.restoreScenario(next, id)), false, true);
+  }
+}
+function deleteScenario() {
+  const id = $('savedScenarios').value;
+  if (!id) return;
+  if (confirm('Excluir este cenário salvo?')) commit(next => { next.savedScenarios = next.savedScenarios.filter(s => s.id !== id); }, false, true);
+}
+function download(name, data, type) {
+  const anchor = document.createElement('a');
+  const url = URL.createObjectURL(new Blob([data], { type }));
+  anchor.href = url; anchor.download = name; document.body.append(anchor); anchor.click(); anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function exportData() { download('consult-casa-dados-v2.json', M.exportData(state), 'application/json'); }
+function downloadTemplate() { download('consult-casa-configuracao-modelo.json', M.configTemplate(), 'application/json'); }
+function downloadOriginal() {
+  try {
+    const raw = localStorage.getItem(M.RECOVERY_KEY) ?? localStorage.getItem(M.STORAGE_KEY) ?? localStorage.getItem(M.LEGACY_KEY);
+    if (raw === null) { message('Ainda não há dados locais originais. Use Exportar dados JSON.'); return; }
+    download('consult-casa-dados-originais.json', raw, 'application/json');
+  } catch (error) { message(error.message); }
+}
+async function importFile(input, configOnly = false) {
+  try {
+    const file = input.files[0]; if (!file) return;
+    if (file.size > 10 * 1024 * 1024) throw new Error('Arquivo muito grande (máximo 10 MB).');
+    const raw = await file.text();
+    if (configOnly) {
+      const obj = JSON.parse(raw);
+      if (obj.type !== 'consult-casa-config' || obj.version !== 2) throw new Error('Selecione uma configuração privada v2.');
+    }
+    M.readImport(raw);
+    if (!confirm(configOnly ? 'Importar esta configuração inicial? O orçamento e as premissas serão substituídos; os gastos atuais e cenários salvos serão mantidos.' : 'Restaurar este arquivo? Premissas, orçamento, gastos e cenários serão substituídos pelos dados do backup. A versão atual será guardada como backup local.')) return;
+    if (storageLocked && !confirm('Os dados locais atuais são inválidos. Restaurar o arquivo validado e arquivar os dados brutos originais neste navegador? Recomendamos baixá-los primeiro pelo botão Baixar dados locais originais.')) return;
+    if (configOnly) {
+      const next = M.readImport(raw); next.expenses = clone(state.expenses); next.savedScenarios = clone(state.savedScenarios);
+      state = M.importInto(localStorage, M.exportData(next), state, storageLocked);
+    } else state = M.importInto(localStorage, raw, state, storageLocked);
+    storageLocked = false;
+    render(); message('Arquivo validado e importado. O estado anterior foi preservado no backup local.');
+  } catch (error) { message(`Importação não realizada: ${error.message}`); }
+  finally { input.value = ''; }
+}
+$('import').onchange = event => importFile(event.target);
+$('privateConfig').onchange = event => importFile(event.target, true);
+function restoreLocalBackup() {
+  try {
+    if (!confirm('Restaurar o backup local anterior, incluindo gastos e cenários? O estado atual será guardado como backup de retorno.')) return;
+    if (storageLocked && !confirm('Arquivar o original inválido e restaurar o backup local válido? Baixe antes os originais se desejar uma cópia externa.')) return;
+    state = M.restoreBackup(localStorage, state, storageLocked); storageLocked = false; render(); message('Backup local restaurado.');
+  } catch (error) { message(error.message); }
+}
+function downloadSchedule() {
+  const rows = ['Mes;Financiamento construcao;Financiamento terreno e construcao;Consorcio'];
+  for (let i = 0; i < Math.max(state.months, state.consMonths); i++) {
+    rows.push([i + 1, ...[schedules.a, schedules.a2, schedules.c].map(s => (s.rows[i]?.payment || 0).toFixed(2).replace('.', ','))].join(';'));
+  }
+  download('cronograma.csv', '\ufeff' + rows.join('\n'), 'text/csv;charset=utf-8');
+}
+$('date').value = new Date().toISOString().slice(0, 10);
+render(); message(startupMessage);
