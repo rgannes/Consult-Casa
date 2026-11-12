@@ -1,5 +1,7 @@
 # VECTO Consultoria — estrutura e verificação da versão 2
 
+> Este documento descreve a Etapa 1. A extensão do motor mensal, os novos campos e suas convenções estão em [etapa2-financeiro.md](etapa2-financeiro.md). Os campos da Etapa 1, gastos, orçamento e backup v2 continuam preservados.
+
 Implementação em branch de trabalho, sem merge ou publicação automática. HTML/CSS/JavaScript sem bibliotecas de execução. `finance.js` e seus testes originais não foram alterados.
 
 ## Uso e regras financeiras

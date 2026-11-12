@@ -1,6 +1,7 @@
 /* Dados locais da VECTO. Não depende de DOM, rede ou do motor de financiamento. */
 (function (root) {
   'use strict';
+  const Planner = typeof module !== 'undefined' ? require('./planner') : root.FinancialPlanner;
   const VERSION = 2;
   const STORAGE_KEY = 'consult-casa-v2';
   const BACKUP_KEY = 'consult-casa-backup-v2';
@@ -58,7 +59,7 @@
     }));
   }
   function defaults() {
-    return {
+    const state = {
       schemaVersion: VERSION, city: 'São José dos Campos – SP', reference: '',
       area: 150, landArea: 250, m2: 5000, ceiling: 0,
       cash: 0, familyHelp: 0, includeFamilyHelp: false, monthlySavings: 0,
@@ -74,10 +75,13 @@
       contingencyBaseIds: GROUPS.filter(([id]) => !['land', 'contingency'].includes(id)).map(([id]) => id),
       groups: makeGroups(PRESETS.intermediario), expenses: [], savedScenarios: []
     };
+    state.planning = Planner.defaults(state);
+    return state;
   }
   const numericFields = Object.keys(defaults()).filter(key => typeof defaults()[key] === 'number' && key !== 'schemaVersion');
   function validateCore(state) {
     object(state, 'Dados');
+    Planner.validate(state.planning);
     if (state.schemaVersion !== VERSION) fail('Versão de dados incompatível.');
     numericFields.forEach(key => number(state[key], key));
     for (const key of ['months', 'consMonths']) {
@@ -125,6 +129,12 @@
     return state;
   }
   function validate(state) {
+    // Extensão aditiva de v2: não reescreve orçamento, gastos ou configurações antigas.
+    state = clone(state);
+    if (state && typeof state === 'object' && !own(state, 'planning')) state.planning = Planner.defaults(state);
+    if (Array.isArray(state?.savedScenarios)) state.savedScenarios.forEach(s => {
+      if (s?.data && typeof s.data === 'object' && !own(s.data, 'planning')) s.data.planning = Planner.defaults(s.data);
+    });
     validateCore(state);
     if (!Array.isArray(state.savedScenarios) || state.savedScenarios.length > 30) fail('Cenários salvos inválidos (máximo 30).');
     const ids = new Set();
@@ -234,6 +244,7 @@
         notes: 'Rubrica original preservada; adicional ao valor-base do grupo.', includedInGroup: false });
     });
     result.expenses = old.expenses.map(e => ({ ...clone(e), groupId: legacyGroup(e.category) }));
+    result.planning = Planner.defaults(result);
     return validate(result);
   }
   function readImport(raw) {
@@ -250,6 +261,7 @@
       }
       // Configurações privadas são pontos de partida, não cotações verificadas.
       merged.scenarioName = 'personalizado';
+      if (!own(obj.config, 'planning')) merged.planning = Planner.defaults(merged);
       return validate(merged);
     }
     if (obj.version !== VERSION || obj.type !== 'consult-casa-backup') fail('Formato de arquivo incompatível.');

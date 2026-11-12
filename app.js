@@ -96,7 +96,7 @@ function field(id, label, type = 'number', max = 1e12) {
 }
 function renderFields() {
   $('fields').replaceChildren(...baseFields.map(args => field(...args)));
-  $('financeFields').replaceChildren(...financeFields.map(args => field(...args)));
+  // Campos e funções legados ficam preservados; não integram a comparação principal.
   $('budgetControls').replaceChildren(
     field('scenarioName', 'Cenário de orçamento', [['economico', 'Econômico'], ['intermediario', 'Intermediário'], ['elevado', 'Elevado'], ['personalizado', 'Personalizado']]),
     field('area', 'Área construída (m²)'), field('m2', 'Construção por m² (R$)'),
@@ -171,9 +171,9 @@ function card(title, value, detail) {
 }
 function renderResources(b, r) {
   $('resourceSummary').innerHTML = card('Disponível hoje sem ajuda', r.nowWithoutHelp, `Reserva descontada do patrimônio: ${money(r.deduction)}. Se já separada, o desconto é zero.`) +
-    card('Ajuda familiar considerada', r.help, 'Opcional e condicionada à confirmação. Compare também sem ajuda.') +
+    card('Ajuda familiar potencial', r.help, 'Não é saldo disponível hoje. No fluxo mensal, entra somente na data escolhida e se confirmada sua utilização.') +
     card('Poupança futura projetada', r.futureSavings, `${state.horizonMonths} meses × ${money(state.monthlySavings)}. Sem rentabilidade; aporte não somado novamente à renda.`) +
-    card('Recursos no horizonte', r.projected, `Sem ajuda: ${money(r.projectedWithoutHelp)}. Não é dinheiro disponível hoje. Falta para o projeto: ${money(Math.max(0, b.total - r.projected))}.`) +
+    card('Recursos potenciais sem calendário', r.projected, `Sem ajuda: ${money(r.projectedWithoutHelp)}. Referência da Etapa 1, não saldo de caixa. Confira datas, aportes e despesas no fluxo mensal antes de usar este valor.`) +
     card('Diferença entre apartamentos', state.largerApartment - state.currentApartment, 'Somente referência: não representa receita de venda, patrimônio líquido ou custo de troca.');
   const warnings = [];
   if (r.reserveShortfall) warnings.push(`A reserva excede o patrimônio informado em ${money(r.reserveShortfall)}; revise a disponibilidade.`);
@@ -182,7 +182,7 @@ function renderResources(b, r) {
   $('resourceWarnings').textContent = warnings.join(' ');
 }
 let schedules;
-function renderFinancing(b, r) {
+function renderLegacyFinancing(b, r) {
   const p = Math.min(state.credit, b.baseNoLand);
   const p2 = Math.min(state.credit, b.total - b.contingency);
   const a = Finance.loan(p, state.annual, state.months, state.system, state.fee, state.index);
@@ -232,9 +232,9 @@ $('expenses').onclick = event => {
 };
 function render() {
   const b = M.budget(state), r = M.resources(state);
-  renderFields(); renderGroups(b); renderResources(b, r); renderFinancing(b, r); renderExpenses(b);
+  renderFields(); renderGroups(b); renderResources(b, r); FinancialView.render(state, commit, M.budget(state)); renderExpenses(b);
   $('totals').innerHTML = card('Total dos 11 grupos', b.total, `Contingência incluída uma única vez: ${money(b.contingency)}.`) +
-    card('Casa sem terreno', b.withoutLand, 'O terreno existente é patrimônio, não desembolso adicional nos cenários 2 e 4.') +
+    card('Casa sem terreno', b.withoutLand, 'Terreno existente não é novo desembolso; sua disponibilidade precisa ser confirmada no caminho escolhido.') +
     card('Base da contingência', b.contingencyBase, state.contingencyMode === 'percent' ? `${state.contingencyPercent}% desta base + subitens adicionais da contingência.` : 'Modo manual: a base não altera a contingência informada.') +
     card('Estresse no horizonte', b.stress, 'Alta aplicada aos grupos sem terreno; terreno fixo. Não é cronograma de desembolsos.');
   if (state.ceiling > 0) $('totals').innerHTML += card('Saldo do limite do projeto', state.ceiling - b.total, 'Antes dos custos de crédito; a reserva familiar não integra o custo da casa.');

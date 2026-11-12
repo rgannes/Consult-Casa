@@ -22,9 +22,15 @@ Para verificação adicional da interface, com Python Playwright e Chromium já 
 - Patrimônio, ajuda familiar opcional, poupança, rendas líquida/brutas, despesas, reserva separada, referências de apartamentos e horizonte.
 - Cenários de orçamento com confirmação antes da troca, salvamento e recuperação.
 - JSON v2 com validação, backup local anterior, importação privada e migração v1 sem apagar gastos.
-- Motor de financiamento em `finance.js` inalterado nesta etapa.
+- Funções legadas em `finance.js` preservadas; novo motor mensal em `simulation.js`, adaptação em `planner.js` e interface em `simulation-ui.js`.
 
 Leia o [manual de uso](docs/uso-v2.html) e a [estrutura, formatos e checklist de verificação](docs/estrutura-v2.md). Os materiais PDF/Word antigos são históricos da v1; seus exemplos não representam os novos cenários.
+
+## Etapa 2: contrato e fluxo mensal
+
+Cronograma completo SAC/Price até 600 parcelas (incluindo 420 meses), seguros e taxas, correção, extras para reduzir prazo/prestação, liberações e encargos de obra, limites bancário/familiar/caixa e fluxo até a última obrigação. CSV integral mesmo no resumo anual. Os quatro caminhos imobiliários são apresentados como **comparações em preparação**, sem resultados completos ainda validados.
+
+Leia o [manual do motor](docs/uso-motor.html) e a [documentação técnica e roteiro de revisão](docs/etapa2-financeiro.md). A extensão `planning` mantém o formato de backup v2 e adapta arquivos antigos sem apagar orçamento, gastos ou cenários. Datas devem ser escolhidas antes de calcular. Não é CET oficial nem aprovação de crédito.
 
 ## Privacidade
 

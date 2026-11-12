@@ -121,12 +121,51 @@ def run():
             page.locator('#import').set_input_files(backup)
             page.wait_for_function("document.getElementById('storageMessage').textContent.includes('Arquivo validado')")
             assert page.evaluate('state.expenses[0].amount') == 123
+            page.get_by_role('button', name='3 · Cenários').click()
+            assert page.locator('#plannerError').inner_text()
+            change('#plan-startDate', '2026-11-01')
+            change('#plan-firstDate', '2026-11-01')
+            change('#plan-helpDate', '2026-12-01')
+            change('#plan-months', 420)
+            assert page.locator('#schedule tr').count() == 420
+            assert page.locator('#plannerError').inner_text() == ''
+            assert '2061' in page.locator('#schedule tr').last.inner_text()
+            page.locator('#plan-scheduleView').select_option('annual')
+            assert page.locator('#schedule tr').count() == 36
             with page.expect_download() as csv_download:
-                page.get_by_role('button', name='3 · Cenários').click()
                 page.get_by_role('button', name='Baixar cronograma CSV').click()
             csv = Path(tmp) / 'schedule.csv'
             csv_download.value.save_as(csv)
-            assert len(csv.read_text(encoding='utf-8-sig').splitlines()) == 241
+            assert len(csv.read_text(encoding='utf-8-sig').splitlines()) == 421
+            with page.expect_download() as cash_download:
+                page.get_by_role('button', name='Baixar fluxo de caixa CSV').click()
+            cash_file = Path(tmp) / 'cash.csv'
+            cash_download.value.save_as(cash_file)
+            assert len(cash_file.read_text(encoding='utf-8-sig').splitlines()) == 421
+            page.locator('#plan-scheduleView').select_option('monthly')
+            page.get_by_role('button', name='Adicionar amortização extra', exact=True).click()
+            change('#extraEditor input[data-key="amount"]', 10000)
+            assert page.locator('#schedule tr').count() < 420
+            page.locator('#extraEditor button[data-remove]').click()
+            assert page.locator('#schedule tr').count() == 420
+            page.locator('#constructionSettings summary').click()
+            change('#plan-constructionMonths', 2)
+            change('#plan-amortizationStartMonth', 3)
+            page.locator('#plan-useConstruction').check()
+            page.get_by_role('button', name='Adicionar liberação', exact=True).click()
+            change('#drawEditor input[data-key="month"]', 2)
+            change('#drawEditor input[data-key="amount"]', 10000)
+            assert page.locator('#schedule tr').count() == 422
+            page.get_by_role('button', name='Adicionar encargo', exact=True).click()
+            change('#chargeEditor input[data-key="amount"]', 100)
+            page.get_by_role('button', name='Adicionar pagamento', exact=True).click()
+            change('#paymentEditor input[data-key="amount"]', 100000)
+            assert page.locator('#cashRows tr.negative').count() > 0
+            assert page.locator('#plannerError').inner_text() == ''
+            page.reload()
+            page.get_by_role('button', name='3 · Cenários').click()
+            assert page.locator('#drawEditor input[data-key="amount"]').input_value() == '10000'
+            assert page.locator('#schedule tr').count() == 422
 
             page.set_viewport_size({'width': 390, 'height': 844})
             page.get_by_role('button', name='1 · Premissas').click()
@@ -154,7 +193,7 @@ def run():
             assert page.evaluate('localStorage.getItem("consult-casa-v1") !== null')
             context.close()
             browser.close()
-            print('PASS: interface, 11 grupos, reserva, ajuda, construção, subitens, troca/cancelamento e recuperação de cenários, gastos persistentes, backup JSON, importação inválida/privada, restauração, CSV, migração v1, tela móvel e ausência de requisições externas.')
+            print('PASS: interface, 11 grupos, reserva, ajuda, construção, subitens, troca/cancelamento e recuperação de cenários, gastos persistentes, backup JSON, importação inválida/privada, restauração, CSV, migração v1, motor de 420 parcelas, CSV integral em resumo anual, amortização extra, liberações e encargos de obra, caixa negativo, tela móvel e ausência de requisições externas.')
     finally:
         server.shutdown()
         server.server_close()
