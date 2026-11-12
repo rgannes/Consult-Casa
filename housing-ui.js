@@ -1,4 +1,4 @@
-/* Uma alternativa por vez, poucas entradas e linhas do tempo com caixa compartilhado. */
+/* Uma alternativa por vez, finanças pessoais e caixa exclusivo da obra. */
 (function (root) {
   'use strict';
   const H = root.Housing, E = root.FinancialEngine;
@@ -38,11 +38,11 @@
       const profile = p[which], stage = last?.stages.find(s => s.id === which);
       const section = document.createElement('div'); section.className = 'housing-step';
       const title = document.createElement('h3'); title.textContent = label; section.append(title);
-      const intro = document.createElement('p'); intro.textContent = `${build ? 'Orçamento da casa' : 'Valor em Premissas'}: ${money(cost)}. Entrada e crédito são calculados automaticamente; você pode ajustá-los.`; section.append(intro);
+      const intro = document.createElement('p'); intro.textContent = build ? `Orçamento da casa: ${money(cost)}. O aporte próprio planejado sai da família e entra na obra, limitado ao caixa pessoal disponível. O crédito fica apenas no caixa da obra. Você pode ajustar os dois valores.` : `Valor em Premissas: ${money(cost)}. Entrada e crédito são calculados automaticamente; você pode ajustá-los.`; section.append(intro);
       const grid = document.createElement('div'); grid.className = 'grid';
       const entry = stage?.funding.entry ?? profile.entry ?? Math.min(cost, Math.max(0, state.cash));
       const credit = stage?.funding.principal ?? profile.credit ?? Math.max(0, cost - entry);
-      grid.append(input(`home-${which}-entry`, 'Entrada utilizada (R$)', entry, v => mutate(which, 'entry', v)),
+      grid.append(input(`home-${which}-entry`, build ? 'Aporte próprio planejado para a obra (R$)' : 'Entrada utilizada (R$)', entry, v => mutate(which, 'entry', v)),
         input(`home-${which}-credit`, 'Financiamento (R$; pode ajustar)', credit, v => mutate(which, 'credit', v)),
         input(`home-${which}-months`, build ? 'Prazo total do financiamento (meses, incluindo obra)' : 'Prazo do financiamento (meses)', profile.months, v => mutate(which, 'months', v)),
         input(`home-${which}-cet`, 'CET anual estimado (%)', profile.cet, v => mutate(which, 'cet', v)),
@@ -86,7 +86,10 @@
     $('housingError').textContent = error; $('housingError').classList.toggle('hidden', !error);
     $('housingSummary').innerHTML = ''; $('housingWarnings').innerHTML = ''; $('housingTimelines').replaceChildren();
     $('housingExport').disabled = !last;
+    $('constructionMovements').classList.add('hidden');
+    $('constructionSummary').replaceChildren(); $('constructionTimeline').replaceChildren();
     if (!last) return;
+    $('constructionMovements').classList.toggle('hidden', !last.hasConstruction);
     const s = last.summary, debtDate = s.debtFreeMonth ? when(E.addMonths(h.startDate, s.debtFreeMonth - 1)) : 'Sem financiamento';
     $('housingSummary').innerHTML = card('Quando chegar à moradia desejada', when(E.addMonths(h.startDate, s.moveMonth - 1)), `Mês ${s.moveMonth} da simulação.`) +
       card('Até quando há financiamentos', debtDate, 'Considera todas as dívidas deste caminho e as quitações em vendas.') +
@@ -94,14 +97,17 @@
       card('Desembolso total projetado', money(s.totalOutlay), last.sales.length ? `Após descontar a venda bruta, necessidade líquida: ${money(s.netOwnOutlay)}. Inclui financiamento, aluguel e custos informados.` : 'Saídas projetadas desde o início: projeto, custo global do crédito, aluguel e custos informados. Gastos pagos antes do início não saem novamente. Não soma o principal emprestado duas vezes.') +
       card('Quanto pagar por mês', money(s.firstPayment), `Primeira cobrança estimada. Primeira prestação na moradia desejada: ${money(s.firstFullPayment)}. Maior soma de prestações: ${money(s.maxPayment)}.`) +
       card('Quanto pode continuar guardando', money(s.regularSaving), 'Sobra mensal após prestações no início da moradia desejada, antes de compras/obra pontuais. Se negativa, precisa complementar com patrimônio.') +
-      card('Patrimônio financeiro ao final', money(s.closingCash), `Dinheiro disponível, sem somar valor dos imóveis. Menor saldo: ${money(s.minimumCash)}.`);
+      card('Patrimônio pessoal ao final', money(s.closingCash), `Dinheiro da família, sem recursos do banco destinados à obra nem valor dos imóveis. Menor saldo pessoal: ${money(s.minimumCash)}.`);
     const alerts = [];
-    if (s.shortageMonths.length) alerts.push(`Falta de caixa em ${s.shortageMonths.length} mês(es), a partir do mês ${s.shortageMonths[0]}. Capital adicional máximo: ${money(s.additionalCapital)}.`);
+    if (s.shortageMonths.length) alerts.push(`Falta de caixa pessoal em ${s.shortageMonths.length} mês(es), a partir do mês ${s.shortageMonths[0]}. Capital adicional máximo: ${money(s.additionalCapital)}.`);
+    if (s.constructionShortageMonths.length) alerts.push(`O caixa da obra fica insuficiente em ${s.constructionShortageMonths.length} mês(es), a partir do mês ${s.firstConstructionShortageMonth}. Capital adicional máximo da obra: ${money(s.constructionAdditionalCapital)}. Não realizamos novos aportes automaticamente.`);
+    if (s.unmetTransfers > 0) alerts.push(`Dos aportes próprios planejados, ${money(s.unmetTransfers)} não puderam ser transferidos por falta de caixa pessoal. Eles não são reaplicados automaticamente depois.`);
     if (s.excessiveMonths.length) alerts.push(`Em ${s.excessiveMonths.length} mês(es), as prestações superam o limite ou a capacidade mensal. Teto bancário hipotético: ${money(s.bankLimit)}; limite confortável: ${money(s.familyLimit)}. Não é aprovação de crédito.`);
     alerts.push(...last.warnings);
     $('housingWarnings').innerHTML = alerts.map(w => `<li>${esc(w)}</li>`).join('');
-    last.sales.forEach(sale => { const note = document.createElement('p'); note.className = 'notice'; note.textContent = `Venda em ${when(E.addMonths(h.startDate, sale.month - 1))}: ${money(sale.gross)} − ${money(sale.costs)} de despesas − ${money(sale.payoff)} de quitação = ${money(sale.net)} líquidos. O caixa é compartilhado; esse valor não é somado outra vez como patrimônio inicial.`; $('housingTimelines').append(note); });
+    last.sales.forEach(sale => { const note = document.createElement('p'); note.className = 'notice'; note.textContent = `Venda em ${when(E.addMonths(h.startDate, sale.month - 1))}: ${money(sale.gross)} − ${money(sale.costs)} de despesas − ${money(sale.payoff)} de quitação = ${money(sale.net)} líquidos. A venda movimenta o caixa pessoal; esse valor não entra automaticamente na obra nem é somado outra vez como patrimônio inicial.`; $('housingTimelines').append(note); });
     for (const stage of last.stages) renderTimeline(stage);
+    if (last.hasConstruction) renderConstruction();
     $('housingExport').onclick = () => {
       const a = document.createElement('a'), url = URL.createObjectURL(new Blob([E.csv(last.rows, H.columns)], { type: 'text/csv;charset=utf-8' }));
       a.href = url; a.download = `vecto-${path}-cronograma-completo.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -111,7 +117,7 @@
     const choice = views[stage.id] ||= { page: 0, mode: 'monthly' }, rows = stage.rows;
     const box = document.createElement('div'); box.className = 'housing-timeline'; box.dataset.stage = stage.id;
     const title = document.createElement('h3'); title.textContent = stage.label; box.append(title);
-    const note = document.createElement('p'); note.className = 'small'; note.textContent = 'Valores pagos são desta etapa. A poupança e o saldo financeiro são da família inteira, já considerando a outra etapa. Não some os saldos das duas linhas. Role a tabela para os lados para ver todos os valores.'; box.append(note);
+    const note = document.createElement('p'); note.className = 'small'; note.textContent = last.hasConstruction ? 'Esta é uma visão das finanças pessoais da família, considerando as obrigações das duas etapas. Fornecedores e liberações do banco estão apenas no caixa da obra, abaixo. Não some os saldos das visões pessoais. Role a tabela para os lados.' : 'Compras, vendas, crédito e prestações dos apartamentos movimentam o mesmo caixa pessoal. As etapas não reiniciam o patrimônio; não some os saldos das duas visões. Role a tabela para os lados.'; box.append(note);
     choice.page = Math.min(choice.page, Math.max(0, Math.ceil(rows.length / 12) - 1));
     const toolbar = document.createElement('div'); toolbar.className = 'timeline-toolbar';
     const controls = [['previous', 'Voltar 12 meses'], ['next', 'Próximos 12 meses'], ['annual', 'Períodos anuais'], ['all', 'Todo o cronograma'], ['monthly', 'Ver 12 meses']];
@@ -133,17 +139,47 @@
       const years = new Map();
       for (const r of rows) {
         const year = r.date.slice(0, 4);
-        if (!years.has(year)) years.set(year, { ...r, date: year, phase: 'Resumo anual', stageTotal: 0, stageFinancing: 0, savingPossible: 0, wealthWithdrawal: 0, minimumCash: r.openingCash });
+        if (!years.has(year)) years.set(year, { ...r, date: year, phase: 'Resumo anual', capacity: 0, rental: 0, financing: 0, projectPayments: 0, transferToProject: 0, savingPossible: 0, wealthWithdrawal: 0, minimumCash: r.openingCash });
         const y = years.get(year);
-        for (const k of ['stageTotal', 'stageFinancing', 'savingPossible', 'wealthWithdrawal']) y[k] = E.cents(y[k] + r[k]);
+        for (const k of ['capacity', 'rental', 'financing', 'projectPayments', 'transferToProject', 'savingPossible', 'wealthWithdrawal']) y[k] = E.cents(y[k] + r[k]);
         y.closingCash = r.closingCash; y.balance = r.balance; y.minimumCash = Math.min(y.minimumCash, r.closingCash);
       }
       visible = [...years.values()];
     }
     const caption = document.createElement('p'); caption.className = 'small'; caption.textContent = choice.mode === 'annual' ? 'Resumo por ano. Todos os meses continuam calculados e estão no CSV.' : `${choice.mode === 'all' ? 'Todos os' : 'Até 12 dos'} ${rows.length} meses desta etapa. Todas as parcelas estão calculadas.`; box.append(caption);
     const table = document.createElement('div'); table.className = 'scroll';
-    table.innerHTML = `<table><thead><tr><th>Mês/ano</th><th>Momento</th><th>Total pago em moradia</th><th>Parcela / encargos</th><th>Poupança possível ${choice.mode === 'annual' ? 'no ano' : 'no mês'}</th><th>Retirada de patrimônio</th><th>Saldo disponível da família</th><th>Saldo desta dívida</th>${choice.mode === 'annual' ? '<th>Menor saldo no ano</th>' : ''}</tr></thead><tbody>${visible.map(r => `<tr class="${(r.minimumCash ?? r.closingCash) < 0 ? 'negative' : ''}"><td>${r.date.length === 4 ? r.date : esc(when(r.date))}</td><td>${esc(r.phase)}</td><td>${money(r.stageTotal)}</td><td>${money(r.stageFinancing)}</td><td>${money(r.savingPossible)}</td><td>${money(r.wealthWithdrawal)}</td><td>${money(r.closingCash)}</td><td>${money(r.balance)}</td>${choice.mode === 'annual' ? `<td>${money(r.minimumCash)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+    table.innerHTML = `<table><thead><tr><th>Mês/ano</th><th>Momento</th><th>Capacidade de poupança</th><th>Aluguel (já considerado)</th><th>Encargos / prestações da família</th><th>Compras / custos de apartamentos</th>${last.hasConstruction ? '<th>Transferência para obra</th>' : ''}<th>Poupança pessoal possível ${choice.mode === 'annual' ? 'no ano' : 'no mês'}</th><th>Saldo pessoal disponível</th><th>Dívida desta etapa (não é caixa)</th>${choice.mode === 'annual' ? '<th>Menor saldo pessoal no ano</th>' : ''}</tr></thead><tbody>${visible.map(r => `<tr class="${(r.minimumCash ?? r.closingCash) < 0 ? 'negative' : ''}"><td>${r.date.length === 4 ? r.date : esc(when(r.date))}</td><td>${esc(r.phase)}</td><td>${money(r.capacity)}</td><td>${money(r.rental)}</td><td>${money(r.financing)}</td><td>${money(r.projectPayments)}</td>${last.hasConstruction ? `<td>${money(r.transferToProject)}</td>` : ''}<td>${money(r.savingPossible)}</td><td>${money(r.closingCash)}</td><td>${money(r.balance)}</td>${choice.mode === 'annual' ? `<td>${money(r.minimumCash)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
     box.append(table); $('housingTimelines').append(box);
+  }
+  function renderConstruction() {
+    const ledger = last.ledgers.project, t = ledger.totals;
+    $('constructionSummary').innerHTML = `<p><strong>Saldo inicial:</strong> ${money(ledger.initialCash)} · <strong>Aportes próprios planejados:</strong> ${money(last.summary.plannedTransfersToProject)} · <strong>Aportes próprios recebidos:</strong> ${money(t.ownTransfers)} · <strong>Liberações/reembolsos:</strong> ${money(t.bankFunding)} · <strong>Pagamentos da obra:</strong> ${money(t.supplierPayments)}.</p><p><strong>Saldo final exclusivo da obra:</strong> ${money(t.closingCash)} · <strong>Capital adicional máximo:</strong> ${money(t.additionalCapital)}${t.firstShortageMonth ? ` · <strong>Primeiro mês insuficiente:</strong> ${t.firstShortageMonth}` : ''}.</p>`;
+    const choice = views.project ||= { page: 0, mode: 'monthly' }, rows = ledger.rows;
+    choice.page = Math.min(choice.page, Math.max(0, Math.ceil(rows.length / 12) - 1));
+    const parent = $('constructionTimeline'); parent.replaceChildren();
+    const toolbar = document.createElement('div'); toolbar.className = 'timeline-toolbar';
+    for (const [action, label] of [['previous', 'Voltar 12 meses'], ['next', 'Próximos 12 meses'], ['annual', 'Períodos anuais'], ['all', 'Todo o cronograma'], ['monthly', 'Ver 12 meses']]) {
+      const button = document.createElement('button'); button.textContent = label; button.className = 'secondary'; button.dataset.projectAction = action;
+      button.disabled = (action === 'previous' && (choice.mode !== 'monthly' || choice.page === 0)) || (action === 'next' && (choice.mode !== 'monthly' || (choice.page + 1) * 12 >= rows.length));
+      button.onclick = () => { if (action === 'previous') choice.page--; else if (action === 'next') choice.page++; else choice.mode = action; renderConstruction(); };
+      toolbar.append(button);
+    }
+    parent.append(toolbar);
+    let visible = choice.mode === 'all' ? rows : rows.slice(choice.page * 12, choice.page * 12 + 12);
+    if (choice.mode === 'annual') {
+      const years = new Map();
+      for (const row of rows) {
+        const year = row.date.slice(0, 4);
+        if (!years.has(year)) years.set(year, { ...row, date: year, ownTransfers: 0, bankFunding: 0, supplierPayments: 0, minimumCash: row.openingCash });
+        const y = years.get(year);
+        for (const key of ['ownTransfers', 'bankFunding', 'supplierPayments']) y[key] = E.cents(y[key] + row[key]);
+        y.closingCash = row.closingCash; y.debtBalance = row.debtBalance; y.minimumCash = Math.min(y.minimumCash, row.closingCash);
+      }
+      visible = [...years.values()];
+    }
+    const table = document.createElement('div'); table.className = 'scroll';
+    table.innerHTML = `<table><thead><tr><th>Mês/ano</th><th>Saldo inicial da obra</th><th>Aportes da família</th><th>Liberação / reembolso bancário</th><th>Pagamentos da obra</th><th>Saldo exclusivo da obra</th><th>Dívida da obra (não é caixa)</th>${choice.mode === 'annual' ? '<th>Menor saldo no ano</th>' : ''}</tr></thead><tbody>${visible.map(r => `<tr class="${(r.minimumCash ?? r.closingCash) < 0 ? 'negative' : ''}"><td>${r.date.length === 4 ? r.date : esc(when(r.date))}</td><td>${money(r.openingCash)}</td><td>${money(r.ownTransfers)}</td><td>${money(r.bankFunding)}</td><td>${money(r.supplierPayments)}</td><td>${money(r.closingCash)}</td><td>${money(r.debtBalance)}</td>${choice.mode === 'annual' ? `<td>${money(r.minimumCash)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+    parent.append(table);
   }
   root.HousingView = { render };
 })(globalThis);

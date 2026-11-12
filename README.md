@@ -44,6 +44,12 @@ A aba Cenários agora calcula apenas o caminho escolhido, com CET global hipoté
 
 Veja o [guia curto](docs/cenarios-simples.html) e as [regras completas](docs/cenarios-simples.md). O orquestrador novo é `housing.js`; a interface é `housing-ui.js`. Os motores e dados técnicos anteriores permanecem preservados. Cronogramas antigos ficam no detalhe opcional de Orçamento. Teste adicional: `python tests/housing_browser.py`.
 
+## Correção 1: dois caixas
+
+`cash-ledgers.js` separa o caixa pessoal do caixa da obra e valida a conciliação mensal. Aportes próprios são finitos e limitados à disponibilidade pessoal; banco e fornecedores ficam na obra. Juros/prestações continuam pessoais. O detalhe da obra é expansível, sem novos campos técnicos ou regras de datas/financiabilidade.
+
+Leia [dois-caixas.md](docs/dois-caixas.md). Verificação adicional: `python tests/ledgers_browser.py`.
+
 ## Privacidade
 
 Dados ficam no `localStorage` do navegador. Exporte JSON para backup e transferência privada. Não há sincronização, analytics, API de dados ou envio automático. Não commitar nomes, configurações privadas, backups, capturas ou informações financeiras reais. O repositório e os arquivos estáticos publicados são públicos; dados escolhidos pelo usuário não devem ser colocados neles.

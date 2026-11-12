@@ -61,13 +61,13 @@ test('aluguel incluído é considerado uma vez e liberado apenas depois da mudan
   s.rentIncludedInExpenses = false;
   const a = H.calculate(s); assert.equal(a.rows[0].capacity, 1500); assert.equal(a.rows[6].capacity, 3000);
 });
-test('duas dívidas simultâneas compartilham uma única conta e somam as parcelas', () => {
+test('duas dívidas simultâneas saem das finanças pessoais e somam as parcelas', () => {
   const s = smallBuild(fixture('buyThenBuild')), p = s.housing.paths.buyThenBuild;
   p.stage2Month = 3; p.first.entry = 60000; p.second.entry = 0;
   const r = H.calculate(s); const row = r.rows[9];
   assert.ok(row.byStage.first.recurring > 0 && row.byStage.second.recurring > 0);
   assert.equal(row.recurring, E.cents(row.byStage.first.recurring + row.byStage.second.recurring));
-  for (const row of r.rows) assert.equal(row.closingCash, E.cents(row.openingCash + row.capacity + row.funding + row.saleGross - row.projectPayments - row.financing));
+  for (const row of r.rows) assert.equal(row.closingCash, E.cents(row.openingCash + row.capacity + row.funding + row.saleGross - row.projectPayments - row.financing - row.transferToProject));
   assert.equal(r.stages[1].rows[0].openingCash, r.rows[2].openingCash);
   assert.ok(r.warnings.some(w => w.includes('simultâneos')));
 });
@@ -116,7 +116,7 @@ test('insuficiência temporária é apontada mesmo com saldo final positivo', ()
   const s = smallBuild(fixture('rentBuild')); s.horizonMonths = 18;
   Object.assign(s, { cash: 0, income: 20000, essential: 5000, monthlySavings: 10000, rent: 0 }); s.housing.cashBaseline = { income: 20000, expenses: 5000, savings: 10000 };
   s.housing.paths.rentBuild.second.entry = 120000;
-  const r = H.calculate(s); assert.ok(r.summary.additionalCapital > 0); assert.ok(r.summary.closingCash > 0); assert.ok(r.summary.shortageMonths.length);
+  const r = H.calculate(s); assert.ok(r.summary.constructionAdditionalCapital > 0); assert.ok(r.summary.closingCash > 0); assert.ok(r.summary.constructionShortageMonths.length);
 });
 test('orçamento, gastos vinculados, dados técnicos e cenários v2 são preservados', () => {
   let s = fixture('rentBuild'); const payment = s.budgetSchedule.groups[6].payments[0];

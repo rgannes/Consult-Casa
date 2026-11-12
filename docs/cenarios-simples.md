@@ -1,5 +1,7 @@
 # Cenários de moradia — VECTO Consult-Casa
 
+> Correção 1: os movimentos da família e da obra agora têm caixas separados e conciliados. Leia [dois-caixas.md](dois-caixas.md). Onde este documento original fala em caixa compartilhado, trata-se das etapas pessoais; recursos e fornecedores da obra seguem a separação da correção atual.
+
 Reformulação da experiência de Cenários, na branch de trabalho. Sem push, merge ou publicação automática. As abas Premissas, Orçamento e Gastos reais, os backups e os motores anteriores permanecem preservados.
 
 ## Escolhas de implementação

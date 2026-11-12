@@ -1,8 +1,9 @@
-/* Quatro caminhos, CET global hipotético e um único patrimônio familiar. */
+/* Quatro caminhos, CET global hipotético e caixas pessoal/obra conciliados. */
 (function (root) {
   'use strict';
   const E = typeof module !== 'undefined' ? require('./simulation') : root.FinancialEngine;
   const B = typeof module !== 'undefined' ? require('./budget-schedule') : root.BudgetScheduler;
+  const L = typeof module !== 'undefined' ? require('./cash-ledgers') : root.CashLedgers;
   const PATHS = {
     buyThenBuild: 'Comprar o apartamento atual e depois construir a casa',
     rentBuild: 'Construir a casa enquanto continuam de aluguel',
@@ -211,7 +212,7 @@
       const funding = amounts(financingCost, p.second.entry, p.second.credit, available(p.stage2Month, beforeBuild));
       const result = loan(p.second, funding.principal, h.startDate, p.stage2Month, true);
       loans.push({ id: 'second', result });
-      events.push(...schedule.events.map(e => ({ ...e, stage: 'second' })));
+      events.push(...schedule.events.map(e => ({ ...e, stage: 'second', account: 'construction' })));
       stages.push({ id: 'second', label: twoStages ? 'Etapa 2 · Construção da casa' : 'Construção da casa', startMonth: Math.min(p.stage2Month, ...schedule.events.map(e => e.month)),
         constructionStart: p.stage2Month, moveMonth, cost: schedule.totals.budget, additionalCosts: schedule.totals.additional, funding,
         profile: clone(p.second), build: true, schedule });
@@ -223,10 +224,10 @@
     let months = Math.max(12, state.horizonMonths, moveMonth, ...events.map(e => e.month), ...sales.map(e => e.month));
     for (const l of loans) months = Math.max(months, ...indexed(l.result).monthRows);
     if (months > 1200) throw Error('O caminho excede o horizonte de 1200 meses.');
-    const rows = [], latestBalances = new Map(); let cash = initial, minimumCash = cash;
+    const rows = [], ledgerFacts = [], latestBalances = new Map();
     const limit = Math.min((state.grossIncome1 + state.grossIncome2) * state.bankPercent / 100, state.comfortablePayment);
     for (let month = 1; month <= months; month++) {
-      const openingCash = cash, baseCapacity = contribution(month), byStage = {};
+      const baseCapacity = contribution(month), byStage = {};
       let funding = 0, debtPayment = 0, recurring = 0, debtBalance = 0;
       for (const s of stages) {
         const l = loans.find(l => l.id === s.id);
@@ -244,23 +245,50 @@
       }
       const housing = E.cents(events.filter(e => e.month === month).reduce((sum, e) => sum + e.amount, 0));
       const saleGross = E.cents(sales.filter(s => s.month === month).reduce((sum, s) => sum + s.gross, 0));
-      cash = E.cents(cash + baseCapacity + funding + saleGross - housing - debtPayment);
-      minimumCash = Math.min(minimumCash, cash);
+      const constructionPayments = E.cents(events.filter(e => e.account === 'construction' && e.month === month).reduce((sum, e) => sum + e.amount, 0));
+      const constructionFunding = E.cents(stages.filter(s => s.build).reduce((sum, s) => sum + byStage[s.id].funding, 0));
+      const constructionDebtBalance = E.cents(stages.filter(s => s.build).reduce((sum, s) => sum + byStage[s.id].balance, 0));
+      const buildStage = stages.find(s => s.build);
+      // Plano finito: despesas anteriores à construção + aporte de entrada no começo da obra.
+      // Não se criam aportes por ocorrência de déficit nem se reaplicam automaticamente os não realizados.
+      const transferPlanned = !buildStage ? 0 : month < buildStage.constructionStart ? constructionPayments :
+        month === buildStage.constructionStart ? buildStage.funding.entry : 0;
+      ledgerFacts.push({ month, date: E.addMonths(h.startDate, month - 1), capacity: baseCapacity,
+        rental: isRenting(month) ? rent : 0, saleGross, apartmentPayments: E.cents(housing - constructionPayments),
+        apartmentFunding: E.cents(funding - constructionFunding), financing: E.cents(debtPayment),
+        constructionPayments, constructionFunding, constructionDebtBalance, transferPlanned });
       const activePhases = stages.filter(s => month >= s.startMonth && (s.id === 'second' || !twoStages || month < p.stage2Month || byStage[s.id].balance > 0 || byStage[s.id].debt > 0)).map(s => `${s.label}: ${byStage[s.id].phase}`);
       rows.push({ month, date: E.addMonths(h.startDate, month - 1), phase: activePhases.join(' + ') || 'Antes da próxima etapa',
-        openingCash, capacity: baseCapacity, projectPayments: housing, financing: E.cents(debtPayment), recurring: E.cents(recurring),
-        rental: isRenting(month) ? rent : 0, totalHousing: E.cents(housing + debtPayment + (isRenting(month) ? rent : 0)), funding: E.cents(funding), saleGross, closingCash: cash, debtBalance: E.cents(debtBalance),
-        savingPossible: E.cents(Math.max(0, baseCapacity - housing - debtPayment)),
-        wealthWithdrawal: E.cents(Math.max(0, openingCash - cash)), regularSaving: E.cents(baseCapacity - recurring),
-        cashShortage: cash < 0, excessivePayment: recurring > limit + .001 || baseCapacity - recurring < 0, byStage });
+        capacity: baseCapacity, financing: E.cents(debtPayment), recurring: E.cents(recurring),
+        rental: isRenting(month) ? rent : 0, saleGross, debtBalance: E.cents(debtBalance), regularSaving: E.cents(baseCapacity - recurring),
+        excessivePayment: recurring > limit + .001 || baseCapacity - recurring < 0, byStage });
     }
+    const ledgers = L.separate({ initialCash: initial, rows: ledgerFacts });
+    rows.forEach((row, index) => {
+      const personal = ledgers.personal.rows[index], project = ledgers.project.rows[index];
+      Object.assign(row, { openingCash: personal.openingCash, closingCash: personal.closingCash,
+        projectPayments: personal.apartmentPayments, funding: personal.apartmentFunding,
+        transferToProject: personal.transferToProject, transferPlanned: personal.transferPlanned, unmetTransfer: personal.unmetTransfer,
+        constructionPayments: project.supplierPayments, constructionFunding: project.bankFunding,
+        constructionCash: project.closingCash, openingConstructionCash: project.openingCash,
+        constructionDebtBalance: project.debtBalance, consolidatedCash: ledgers.reconciliation[index].combinedCash,
+        savingPossible: personal.savingPossible, wealthWithdrawal: personal.wealthWithdrawal,
+        totalHousing: E.cents(personal.apartmentPayments + personal.financing + personal.transferToProject + personal.rental),
+        cashShortage: personal.shortage, constructionShortage: project.shortage });
+    });
     for (const s of stages) {
       const l = loans.find(l => l.id === s.id);
       const lastDebt = Math.max(s.startMonth, ...indexed(l.result).monthRows);
       const sale = sales.find(() => s.id === 'first');
       s.endMonth = Math.max(lastDebt, s.moveMonth, ...events.filter(e => e.stage === s.id).map(e => e.month), s.id === 'first' && twoStages ? Math.max(sale ? sale.month : 1, p.stage2Month - 1) : 1);
-      s.rows = rows.filter(r => r.month >= s.startMonth && r.month <= s.endMonth).map(r => ({ ...r, ...r.byStage[s.id], phase: r.byStage[s.id].phase,
-        stageHousing: E.cents(r.byStage[s.id].housing + (s.id === (h.selectedPath === 'rentBuild' || (h.selectedPath === 'buyThenBuild' && r.month >= p.stage2Month) ? 'second' : 'first') ? r.rental : 0)), stageFinancing: r.byStage[s.id].debt, stageTotal: E.cents(r.byStage[s.id].housing + r.byStage[s.id].debt + (s.id === (h.selectedPath === 'rentBuild' || (h.selectedPath === 'buyThenBuild' && r.month >= p.stage2Month) ? 'second' : 'first') ? r.rental : 0)) }));
+      s.rows = rows.filter(r => r.month >= s.startMonth && r.month <= s.endMonth).map(r => {
+        const rentalPart = s.id === (h.selectedPath === 'rentBuild' || (h.selectedPath === 'buyThenBuild' && r.month >= p.stage2Month) ? 'second' : 'first') ? r.rental : 0;
+        const personalPurchases = E.cents(events.filter(e => e.stage === s.id && e.account !== 'construction' && e.month === r.month).reduce((sum, e) => sum + e.amount, 0));
+        const ownTransfer = s.build ? r.transferToProject : 0;
+        return { ...r, ...r.byStage[s.id], funding: r.funding, phase: r.byStage[s.id].phase,
+          stageHousing: E.cents(personalPurchases + rentalPart + ownTransfer), stageFinancing: r.byStage[s.id].debt,
+          stageTotal: E.cents(personalPurchases + rentalPart + ownTransfer + r.byStage[s.id].debt) };
+      });
     }
     for (const l of loans) warnings.push(...l.result.warnings);
     const allDebtRows = loans.flatMap(l => l.result.rows);
@@ -271,21 +299,30 @@
     const reference = rows[firstFullMonth - 1];
     const firstFinancing = rows.find(r => r.recurring > 0)?.recurring || 0;
     if (twoStages && rows.some(r => r.byStage.first?.recurring > 0 && r.byStage.second?.recurring > 0)) warnings.push('Há dois financiamentos simultâneos. A poupança e o caixa das duas linhas já consideram as duas prestações juntas.');
-    return { path: h.selectedPath, initialCash: initial, baseCapacity: base, rows, stages, loans, sales, warnings: [...new Set(warnings)],
+    return { path: h.selectedPath, initialCash: initial, baseCapacity: base, rows, stages, loans, sales, ledgers, hasConstruction: buildPath, warnings: [...new Set(warnings)],
       summary: { moveMonth, debtFreeMonth: Math.max(0, ...allDebtRows.map(r => index(r.date))),
         projectCost: E.cents(stages.reduce((sum, s) => sum + s.cost, 0)), projectPayments, totalOutlay,
         netOwnOutlay: E.cents(totalOutlay - sales.reduce((s, sale) => s + sale.gross, 0)),
         financingCost: E.cents(debtPayments - disbursed), firstPayment: firstFinancing,
         firstFullPayment: reference.recurring,
         maxPayment: Math.max(0, ...rows.map(r => r.recurring)), regularSaving: reference.regularSaving,
-        closingCash: cash, minimumCash, additionalCapital: E.cents(Math.max(0, -minimumCash)),
+        closingCash: ledgers.personal.totals.closingCash, minimumCash: ledgers.personal.totals.minimumCash, additionalCapital: ledgers.personal.totals.additionalCapital,
+        constructionClosingCash: ledgers.project.totals.closingCash, constructionMinimumCash: ledgers.project.totals.minimumCash,
+        constructionAdditionalCapital: ledgers.project.totals.additionalCapital, constructionShortageMonths: ledgers.project.totals.shortageMonths,
+        firstConstructionShortageMonth: ledgers.project.totals.firstShortageMonth, totalAdditionalCapital: ledgers.maxJointShortage,
+        transfersToProject: ledgers.personal.totals.transfers, plannedTransfersToProject: ledgers.personal.totals.plannedTransfers, unmetTransfers: ledgers.personal.totals.unmetTransfers,
         shortageMonths: rows.filter(r => r.cashShortage).map(r => r.month), excessiveMonths: rows.filter(r => r.excessivePayment).map(r => r.month),
         bankLimit: E.cents((state.grossIncome1 + state.grossIncome2) * state.bankPercent / 100), familyLimit: state.comfortablePayment } };
   }
-  const columns = [['month', 'Mês'], ['date', 'Data'], ['phase', 'Fase'], ['openingCash', 'Caixa inicial compartilhado'],
-    ['capacity', 'Capacidade de poupança antes da moradia'], ['projectPayments', 'Compras e obra'], ['financing', 'Financiamentos e quitações'],
-    ['rental', 'Aluguel (já na capacidade)'], ['totalHousing', 'Total pago em moradia'], ['funding', 'Crédito recebido'], ['saleGross', 'Venda bruta'], ['savingPossible', 'Poupança possível'],
-    ['wealthWithdrawal', 'Retirada do patrimônio'], ['closingCash', 'Caixa disponível compartilhado'], ['debtBalance', 'Saldo devedor total']];
+  const columns = [['month', 'Mês'], ['date', 'Data'], ['phase', 'Fase'], ['openingCash', 'Saldo pessoal inicial'],
+    ['capacity', 'Capacidade pessoal (aluguel já tratado)'], ['projectPayments', 'Compras/vendas de apartamentos e despesas pessoais'],
+    ['financing', 'Encargos/prestações/quitações pessoais'], ['rental', 'Aluguel (já na capacidade)'],
+    ['transferToProject', 'Transferência pessoal para obra'], ['unmetTransfer', 'Aporte planejado não realizado'],
+    ['funding', 'Crédito de apartamento'], ['saleGross', 'Venda de apartamento'], ['savingPossible', 'Poupança pessoal possível'],
+    ['wealthWithdrawal', 'Retirada do patrimônio pessoal'], ['closingCash', 'Saldo pessoal final'],
+    ['openingConstructionCash', 'Saldo inicial da obra'], ['transferToProject', 'Aporte próprio recebido pela obra'],
+    ['constructionFunding', 'Liberação/reembolso recebido pela obra'], ['constructionPayments', 'Fornecedores/despesas da obra'],
+    ['constructionCash', 'Saldo exclusivo da obra'], ['constructionDebtBalance', 'Saldo devedor da obra (não é caixa)'], ['debtBalance', 'Dívida total (não é caixa)']];
   const api = { PATHS, defaults, normalize, validate, capacity, amounts, calculate, columns };
   if (typeof module !== 'undefined') module.exports = api;
   root.Housing = api;
