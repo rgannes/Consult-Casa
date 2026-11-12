@@ -160,6 +160,9 @@ def run():
             change('#chargeEditor input[data-key="amount"]', 100)
             page.get_by_role('button', name='Adicionar pagamento', exact=True).click()
             change('#paymentEditor input[data-key="amount"]', 100000)
+            assert 'Classifique' in page.locator('#plannerError').inner_text()
+            page.locator('#budgetScheduleSettings summary').first.click()
+            page.locator('#legacyBudgetClassification select').select_option('construction')
             assert page.locator('#cashRows tr.negative').count() > 0
             assert page.locator('#plannerError').inner_text() == ''
             page.reload()

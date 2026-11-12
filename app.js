@@ -203,15 +203,31 @@ function renderLegacyFinancing(b, r) {
   $('schedule').innerHTML = Array.from({ length: Math.min(12, Math.max(state.months, state.consMonths)) }, (_, i) =>
     `<tr><td>${i + 1}</td><td>${money(a.rows[i]?.payment || 0)}</td><td>${money(a2.rows[i]?.payment || 0)}</td><td>${money(c.rows[i]?.payment || 0)}</td></tr>`).join('');
 }
+function paymentOptions(groupId, selected = '') {
+  const payments = BudgetScheduler.allPayments(state).filter(p =>
+    (p.treatment === 'additional' || (p.treatment === 'budget' && p.groupId === groupId)));
+  return '<option value="">Sem vínculo — consome o saldo do grupo</option>' +
+    (selected && !payments.some(p => p.id === selected) ? `<option value="${esc(selected)}" selected>Vínculo ausente: ${esc(selected)} — revisar</option>` : '') +
+    payments.map(p => `<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>Mês ${p.month} · ${money(p.amount)} · ${esc(p.id)}</option>`).join('');
+}
+function renderExpenseLink() {
+  const input = $('expensePaymentLink');
+  const selected = input.value;
+  input.innerHTML = paymentOptions($('category').value, selected);
+  input.disabled = $('expenseCashTreatment').value === 'financing';
+}
+$('category').onchange = () => { $('expensePaymentLink').value = ''; renderExpenseLink(); };
+$('expenseCashTreatment').onchange = renderExpenseLink;
 function renderExpenses(b) {
   const selected = $('category').value;
   $('category').innerHTML = state.groups.map(g => `<option value="${g.id}">${esc(g.label)}</option>`).join('');
   if (selected) $('category').value = selected;
+  renderExpenseLink();
   const paid = state.expenses.filter(e => e.status === 'Pago').reduce((sum, e) => sum + e.amount, 0);
   const pending = state.expenses.filter(e => e.status === 'A pagar').reduce((sum, e) => sum + e.amount, 0);
   $('actualSummary').innerHTML = card('Pago', paid, 'Saídas registradas.') + card('Contratado a pagar', pending, 'Compromissos registrados.') +
     card('Saldo do orçamento total', b.total - paid - pending, 'Inclui os 11 grupos. Não representa caixa nem custo estimado para concluir.');
-  $('expenses').innerHTML = state.expenses.map((e, i) => `<tr><td>${esc(e.date)}</td><td>${esc(e.category)}</td><td>${esc(e.description)}</td><td>${money(e.amount)}</td><td>${esc(e.status)}</td><td><button class="danger" data-expense="${i}">Excluir</button></td></tr>`).join('');
+  $('expenses').innerHTML = state.expenses.map((e, i) => `<tr><td>${esc(e.date)}</td><td>${esc(e.category)}</td><td>${esc(e.description)}</td><td>${money(e.amount)}</td><td><select data-expense-status="${i}"><option ${e.status === 'Pago' ? 'selected' : ''}>Pago</option><option ${e.status === 'A pagar' ? 'selected' : ''}>A pagar</option></select></td><td><select data-expense-link="${i}" ${e.cashTreatment === 'financing' ? 'disabled' : ''}>${paymentOptions(e.groupId, e.paymentId || '')}</select></td><td><select data-expense-treatment="${i}"><option value="budget">Despesa do projeto</option><option value="financing" ${e.cashTreatment === 'financing' ? 'selected' : ''}>Já no contrato</option></select></td><td><button class="danger" data-expense="${i}">Excluir</button></td></tr>`).join('');
   $('variance').innerHTML = '<table><tr><th>Grupo</th><th>Planejado</th><th>Pago + a pagar</th><th>Saldo</th></tr>' + state.groups.map(g => {
     const spent = state.expenses.filter(e => e.groupId === g.id).reduce((sum, e) => sum + e.amount, 0);
     return `<tr><td>${esc(g.label)}</td><td>${money(b.values[g.id])}</td><td>${money(spent)}</td><td>${money(b.values[g.id] - spent)}</td></tr>`;
@@ -222,9 +238,20 @@ $('expenseForm').onsubmit = event => {
   if (!$('expenseForm').reportValidity()) return;
   const group = state.groups.find(g => g.id === $('category').value);
   if (commit(next => next.expenses.push({ id: uniqueId(), date: $('date').value, groupId: group.id,
-    category: group.label, description: $('description').value, amount: Number($('amount').value), status: $('status').value }))) {
+    category: group.label, description: $('description').value, amount: Number($('amount').value), status: $('status').value,
+    paymentId: $('expenseCashTreatment').value === 'financing' ? '' : $('expensePaymentLink').value, cashTreatment: $('expenseCashTreatment').value }))) {
     $('description').value = ''; $('amount').value = '';
   }
+};
+$('expenses').onchange = event => {
+  const input = event.target;
+  const key = ['expenseLink', 'expenseTreatment', 'expenseStatus'].find(k => input.dataset[k] !== undefined);
+  if (!key) return;
+  commit(next => {
+    const expense = next.expenses[Number(input.dataset[key])];
+    const property = { expenseLink: 'paymentId', expenseTreatment: 'cashTreatment', expenseStatus: 'status' }[key];
+    expense[property] = input.value;
+  }, false, true);
 };
 $('expenses').onclick = event => {
   const button = event.target.closest('button[data-expense]');

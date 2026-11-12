@@ -33,8 +33,8 @@
   }
   const rate = annual => Math.expm1(Math.log1p(annual / 100) / 12);
   function payment(balance, i, months) { return i === 0 ? balance / months : balance * i / -Math.expm1(-months * Math.log1p(i)); }
-  function eventList(events, name) {
-    if (!Array.isArray(events) || events.length > 1200) throw Error(`${name}: lista inválida.`);
+  function eventList(events, name, maximum = 1200) {
+    if (!Array.isArray(events) || events.length > maximum) throw Error(`${name}: lista inválida.`);
     events.forEach(e => { if (!e || typeof e !== 'object') throw Error(`${name}: evento inválido.`); integer(e.month, name, 1); num(e.amount, name); });
   }
   function loanSchedule(input) {
@@ -152,9 +152,14 @@
     if (o.moveMonth <= o.projectStartMonth) throw Error('Mudança deve ocorrer após o início do projeto.');
     if (o.rentEndMonth === 0) o.rentEndMonth = o.moveMonth - 1;
     bool(o.help.enabled, 'Ajuda familiar'); num(o.help.amount, 'Ajuda familiar'); date(o.help.date, !o.help.enabled || o.help.amount === 0);
-    eventList(o.events, 'Pagamentos do projeto');
+    eventList(o.events, 'Pagamentos do projeto', 100000);
     o.events = o.events.map(e => ({ ...e, amount: cents(e.amount) }));
     const monthly = new Map();
+    const paymentMonths = new Map();
+    for (const e of o.events) {
+      if (!paymentMonths.has(e.month)) paymentMonths.set(e.month, []);
+      paymentMonths.get(e.month).push(e);
+    }
     const at = month => { if (!monthly.has(month)) monthly.set(month, { funding: 0, installments: 0, extra: 0, upfront: 0 }); return monthly.get(month); };
     function index(d) { const m = monthOffset(o.startDate, d) + 1; integer(m, 'Evento anterior ao início da simulação', 1); return m; }
     let months = Math.max(o.minMonths, o.moveMonth, ...o.events.map(e => e.month));
@@ -176,7 +181,7 @@
       const rentReleased = o.rentIncludedInBase && month > o.rentEndMonth ? o.rent : 0;
       const additionalExpenses = month >= o.additionalFromMonth ? o.additionalExpenses : 0;
       const help = month === helpMonth ? o.help.amount : 0;
-      const payments = o.events.filter(e => e.month === month);
+      const payments = paymentMonths.get(month) || [];
       const projectPayments = cents(payments.filter(e => e.kind !== 'construction').reduce((s, e) => s + e.amount, 0));
       const constructionPayments = cents(payments.filter(e => e.kind === 'construction').reduce((s, e) => s + e.amount, 0));
       const debt = at(month);

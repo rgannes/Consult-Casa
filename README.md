@@ -32,6 +32,12 @@ Cronograma completo SAC/Price até 600 parcelas (incluindo 420 meses), seguros e
 
 Leia o [manual do motor](docs/uso-motor.html) e a [documentação técnica e roteiro de revisão](docs/etapa2-financeiro.md). A extensão `planning` mantém o formato de backup v2 e adapta arquivos antigos sem apagar orçamento, gastos ou cenários. Datas devem ser escolhidas antes de calcular. Não é CET oficial nem aprovação de crédito.
 
+## Integração automática do orçamento
+
+Os 11 grupos geram pagamentos únicos ou mensais, com edição manual/profissional e proteção de confirmados, pagos e fixados. Gastos vinculados substituem a previsão, inclusive em pagamentos parciais. Há reconciliação por grupo, migração de v2 e classificação explícita de pagamentos manuais antigos para evitar dupla contagem.
+
+Leia o [manual da integração](docs/uso-orcamento-fluxo.html) e as [regras detalhadas](docs/orcamento-fluxo.md). Teste adicional no navegador: `python tests/budget_browser.py` (Playwright/Chromium já disponíveis).
+
 ## Privacidade
 
 Dados ficam no `localStorage` do navegador. Exporte JSON para backup e transferência privada. Não há sincronização, analytics, API de dados ou envio automático. Não commitar nomes, configurações privadas, backups, capturas ou informações financeiras reais. O repositório e os arquivos estáticos publicados são públicos; dados escolhidos pelo usuário não devem ser colocados neles.

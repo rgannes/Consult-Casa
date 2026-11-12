@@ -2,6 +2,7 @@
 (function (root) {
   'use strict';
   const E = typeof module !== 'undefined' ? require('./simulation') : root.FinancialEngine;
+  const B = typeof module !== 'undefined' ? require('./budget-schedule') : root.BudgetScheduler;
   const PATHS = {
     buyThenBuild: 'Comprar apartamento atual e depois construir',
     rentBuild: 'Construir pagando aluguel',
@@ -60,7 +61,11 @@
     return plan;
   }
   function calculate(state) {
+    const schedule = B.resolve(state);
+    state = schedule.state;
     const p = validate(state.planning);
+    if (schedule.issues.length) throw Error(schedule.issues.join(' '));
+    if (schedule.review.length) throw Error('Classifique os pagamentos manuais da Etapa 2 para evitar dupla contagem com o orçamento automático.');
     if (!p.startDate || !p.firstDate) throw Error('Informe início do fluxo e primeiro vencimento/competência do contrato para calcular.');
     const loan = E.loanSchedule({ principal: p.principal, annualRate: p.annualRate, months: p.months, system: p.system,
       indexAnnual: p.indexAnnual, insuranceFixed: p.insuranceFixed, insurancePercentMonthly: p.insurancePercentMonthly,
@@ -70,7 +75,7 @@
         amortizationStartMonth: p.amortizationStartMonth, draws: p.draws, charges: p.constructionCharges,
         capitalizeInterest: p.capitalizeInterest } : null });
     const reserveDeduction = state.reserveAlreadyExcluded ? 0 : state.preservedReserve;
-    const moveMonth = p.projectStartMonth + p.constructionMonths + p.constructionDelay;
+    const moveMonth = schedule.timeline.moveMonth;
     const limitInputs = { grossIncome: p.grossFamilyIncome, bankPercent: p.bankPercent,
       comfortablePayment: p.comfortablePayment, minimumSavings: p.minimumSavings };
     const flow = E.cashFlow({ startDate: p.startDate, initialCash: Math.max(0, state.cash - reserveDeduction),
@@ -79,18 +84,17 @@
       additionalExpenses: p.additionalExpenses, additionalFromMonth: p.additionalFromMonth,
       rent: p.rent, rentIncludedInBase: p.rentIncludedInBase, rentEndMonth: p.rentEndMonth || moveMonth - 1,
       projectStartMonth: p.projectStartMonth, moveMonth, minMonths: Math.max(1, state.horizonMonths),
-      loans: [loan], events: p.projectPayments, limitInputs });
-    const warnings = [...loan.warnings];
-    if (!p.projectPayments.length) warnings.push('Nenhum pagamento de compra/obra foi distribuído no fluxo. Crédito recebido não é ganho: cadastre os pagamentos, inclusive entrada e custos não financiados.');
+      loans: [loan], events: schedule.events, limitInputs });
+    const warnings = [...loan.warnings, ...schedule.warnings];
     if (state.includeFamilyHelp) warnings.push('Ajuda familiar é condicional; só entra no mês da data informada.');
     if (state.cash < reserveDeduction) warnings.push('Patrimônio inicial insuficiente para preservar toda a reserva.');
-    warnings.push('O orçamento de 11 grupos e os gastos reais não são somados automaticamente ao fluxo. Distribua os pagamentos uma única vez; confira a reconciliação com o orçamento.');
+    warnings.push('O crédito liberado é entrada de financiamento, não renda ou ganho patrimonial. Pagamentos do orçamento entram pelo cronograma reconciliado; juros e amortizações entram apenas pelo contrato.');
     if (p.useConstruction && E.monthOffset(p.startDate, p.firstDate) + 1 !== p.projectStartMonth) warnings.push('O início do contrato não coincide com o início do projeto no fluxo; confirme a correspondência dos meses das liberações e dos encargos.');
     if (p.useConstruction) warnings.push('Liberações, encargos e datas são hipóteses até proposta bancária. Atraso altera o prazo da obra/mudança; revise manualmente os meses de liberação, encargos e início da amortização.');
     const peakPayment = Math.max(0, ...flow.rows.map(r => r.installments));
     return { loan, flow, limits: E.limits({ ...limitInputs, recurringPayment: peakPayment,
       monthlyCapacity: Math.min(...flow.rows.map(r => r.monthlyCapacity)), closingCash: flow.totals.minimumBalance }), warnings,
-      scheduledProjectTotal: E.cents(p.projectPayments.reduce((s, e) => s + e.amount, 0)) };
+      schedule, scheduledProjectTotal: schedule.totals.programmed };
   }
   const api = { PATHS, defaults, validate, calculate };
   if (typeof module !== 'undefined') module.exports = api;

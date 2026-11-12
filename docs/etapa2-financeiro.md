@@ -1,5 +1,7 @@
 # Etapa 2 — motor financeiro mensal da VECTO Consult-Casa
 
+> A integração automática dos 11 grupos foi acrescentada em continuação desta etapa. O manual atual está em [orcamento-fluxo.md](orcamento-fluxo.md). As convenções do motor de dívida abaixo continuam válidas.
+
 Implementação local na branch `feat/vecto-financial-budget`. Não é aprovação de crédito, CET oficial, proposta bancária ou comparação imobiliária validada. Não faz merge, push ou publicação.
 
 ## Escopo e arquitetura
@@ -135,9 +137,9 @@ Os tipos `project`, `construction` e `nonFinanced` classificam eventos. Cada eve
 
 `additionalCapital` é o valor máximo para cobrir o menor saldo negativo mensal, sem juros ou custo de captação. Não é dinheiro automaticamente injetado; o fluxo bruto permanece negativo nos meses de falta. O saldo anual mostra também o menor caixa do ano para não ocultar déficit intermediário.
 
-### Reconciliação necessária
+### Integração automática com o orçamento
 
-O orçamento de 11 grupos e os gastos reais são preservados e **não são debitados automaticamente** no novo fluxo. O usuário precisa distribuir pagamentos, incluindo entrada, compra do imóvel/terreno e custos não financiados. Um aviso permanente e a comparação entre pagamentos cadastrados e total do orçamento impedem interpretar fluxo sem pagamentos como compra viável. Despesas de financiamento já trazidas pelo contrato não devem ser repetidas como eventos do projeto. Recursos emprestados são entrada de caixa, não receita econômica ou lucro.
+Esta limitação foi corrigida: os 11 grupos geram pagamentos automaticamente, preservando fixados e realizados. Gastos vinculados substituem a previsão; pagamentos manuais antigos exigem classificação para não duplicar valores. Consulte [orcamento-fluxo.md](orcamento-fluxo.md) para as regras, a migração e a reconciliação atuais.
 
 ## Dados e compatibilidade
 

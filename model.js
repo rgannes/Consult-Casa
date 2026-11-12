@@ -2,6 +2,7 @@
 (function (root) {
   'use strict';
   const Planner = typeof module !== 'undefined' ? require('./planner') : root.FinancialPlanner;
+  const Scheduler = typeof module !== 'undefined' ? require('./budget-schedule') : root.BudgetScheduler;
   const VERSION = 2;
   const STORAGE_KEY = 'consult-casa-v2';
   const BACKUP_KEY = 'consult-casa-backup-v2';
@@ -76,7 +77,8 @@
       groups: makeGroups(PRESETS.intermediario), expenses: [], savedScenarios: []
     };
     state.planning = Planner.defaults(state);
-    return state;
+    state.budgetSchedule = Scheduler.defaults();
+    return Scheduler.synchronize(state);
   }
   const numericFields = Object.keys(defaults()).filter(key => typeof defaults()[key] === 'number' && key !== 'schemaVersion');
   function validateCore(state) {
@@ -136,6 +138,7 @@
       if (s?.data && typeof s.data === 'object' && !own(s.data, 'planning')) s.data.planning = Planner.defaults(s.data);
     });
     validateCore(state);
+    state = Scheduler.synchronize(state);
     if (!Array.isArray(state.savedScenarios) || state.savedScenarios.length > 30) fail('Cenários salvos inválidos (máximo 30).');
     const ids = new Set();
     state.savedScenarios.forEach(s => {
@@ -143,27 +146,12 @@
       text(s.createdAt, 'Data de salvamento', 40);
       if (!s.id || ids.has(s.id) || !Number.isFinite(Date.parse(s.createdAt))) fail('Cenário salvo inválido.');
       ids.add(s.id); validateCore(s.data);
+      s.data = Scheduler.synchronize(s.data);
       if (own(s.data, 'savedScenarios')) fail('Cenários não podem conter outros cenários.');
     });
     return clone(state);
   }
-  function additional(group) { return group.subitems.reduce((sum, item) => sum + (item.includedInGroup ? 0 : item.value), 0); }
-  function budget(state) {
-    const values = {};
-    state.groups.forEach(group => {
-      let base = group.value;
-      if (group.id === 'construction' && state.constructionMode === 'area') base = state.area * state.m2;
-      if (group.id !== 'contingency') values[group.id] = base + additional(group);
-    });
-    const contingencyBase = state.contingencyBaseIds.reduce((sum, id) => sum + values[id], 0);
-    const contingencyGroup = state.groups[10];
-    values.contingency = (state.contingencyMode === 'manual' ? contingencyGroup.value : contingencyBase * state.contingencyPercent / 100) + additional(contingencyGroup);
-    const total = Object.values(values).reduce((sum, value) => sum + value, 0);
-    return { values, total, land: values.land, withoutLand: total - values.land,
-      construction: values.construction, contingency: values.contingency, contingencyBase,
-      baseNoLand: total - values.land - values.contingency,
-      stress: (total - values.land) * Math.pow(1 + state.inflation / 100, state.delay / 12) + values.land };
-  }
+  function budget(state) { return Scheduler.budget(state); }
   function resources(state) {
     const deduction = state.reserveAlreadyExcluded ? 0 : state.preservedReserve;
     const nowWithoutHelp = Math.max(0, state.cash - deduction);
@@ -189,7 +177,7 @@
     const saved = state.savedScenarios.find(s => s.id === id);
     if (!saved) fail('Cenário não encontrado.');
     // Recupera premissas e orçamento, sem apagar gastos registrados depois do cenário.
-    return validate({ ...clone(saved.data), expenses: clone(state.expenses), savedScenarios: clone(state.savedScenarios) });
+    return validate(Scheduler.preserveProtected(state, { ...clone(saved.data), expenses: clone(state.expenses), savedScenarios: clone(state.savedScenarios) }));
   }
   function applyPreset(state, name) {
     const result = clone(state);
@@ -245,6 +233,7 @@
     });
     result.expenses = old.expenses.map(e => ({ ...clone(e), groupId: legacyGroup(e.category) }));
     result.planning = Planner.defaults(result);
+    result.budgetSchedule = Scheduler.defaults();
     return validate(result);
   }
   function readImport(raw) {

@@ -23,7 +23,7 @@
   ];
   const timelineFields = [
     ['startDate', 'Início do fluxo de caixa', 'date'], ['helpDate', 'Data hipotética do recebimento da ajuda familiar', 'date'],
-    ['projectStartMonth', 'Mês de início do projeto no fluxo', 'integer'], ['constructionMonths', 'Prazo de obra / projeto (meses)', 'integer', 600],
+    ['projectStartMonth', 'Mês de início da construção no fluxo', 'integer'], ['constructionMonths', 'Prazo de obra / projeto (meses)', 'integer', 600],
     ['constructionDelay', 'Atraso de obra / projeto (meses)', 'zeroInteger', 600], ['rent', 'Aluguel mensal (R$)'],
     ['rentIncludedInBase', 'Aluguel já incluído nas despesas / poupança atual', 'checkbox'],
     ['rentEndMonth', 'Último mês de aluguel no fluxo (zero = mês anterior à mudança)', 'zeroInteger', 1200]
@@ -61,7 +61,7 @@
     extraPayments: ['extraEditor', 'Amortizações extraordinárias', 'Adicionar amortização extra'],
     draws: ['drawEditor', 'Liberações de crédito por etapa', 'Adicionar liberação'],
     constructionCharges: ['chargeEditor', 'Outros encargos de obra por janela mensal', 'Adicionar encargo'],
-    projectPayments: ['paymentEditor', 'Pagamentos de compra, obra e custos não financiados', 'Adicionar pagamento']
+    projectPayments: ['paymentEditor', 'Pagamentos manuais adicionais/legados — classificar na integração do orçamento', 'Adicionar pagamento']
   };
   function eventEditor(plan, change, key) {
     const [id, title, action] = eventTypes[key], node = $(id);
@@ -100,6 +100,7 @@
   }
   function render(state, change, budget) {
     const p = state.planning;
+    BudgetScheduleView.render(state, change);
     $('results').innerHTML = Object.entries(P.PATHS).map(([id, title]) => `<article class="card ${p.selectedPath === id ? 'selected-path' : ''}"><h3>${esc(title)}</h3><p>Comparação em preparação. Sem resultado imobiliário validado nesta etapa.</p><button data-path="${id}">${p.selectedPath === id ? 'Caminho selecionado' : 'Selecionar caminho'}</button></article>`).join('');
     $('results').onclick = event => { const button = event.target.closest('button[data-path]'); if (button) change(next => { next.planning.selectedPath = button.dataset.path; }); };
     for (const [id, fields] of [['plannerLimits', limitsFields], ['plannerContract', contractFields], ['plannerTimeline', timelineFields], ['plannerConstruction', constructionFields]]) {
@@ -121,7 +122,9 @@
         card('Saldo devedor final', t.closingBalance, `${t.installments} parcelas de amortização; quitação: ${t.lastDate || 'sem crédito liberado'}. Extra efetivamente utilizada: ${money(t.extra)}.`) +
         card('Caixa final', flow.totals.closingCash, `Menor saldo durante o fluxo: ${money(flow.totals.minimumBalance)}.`) +
         card('Capital adicional necessário', flow.totals.additionalCapital, flow.totals.firstNegativeMonth ? `Primeiro mês negativo: ${flow.totals.firstNegativeMonth}. Saldo final positivo não elimina falta de caixa anterior.` : 'Nenhum saldo mensal negativo nas hipóteses cadastradas.') +
-        card('Pagamentos distribuídos no fluxo', latest.scheduledProjectTotal, `Orçamento dos 11 grupos: ${money(budget.total)}. Reconciliação manual; não somamos orçamento e pagamentos duas vezes.`);
+        card('Orçamento programado/realizado', latest.scheduledProjectTotal, `Orçamento dos 11 grupos: ${money(budget.total)}. Cronograma reconciliado automaticamente; previsões, gastos e contrato entram uma única vez.`);
+      $('plannerSummary').innerHTML += card('Pago do projeto', latest.schedule.totals.paid, 'Gastos reais e pagamentos declarados, sem contar o vínculo duas vezes.') +
+        card('Pagamentos futuros do projeto', latest.schedule.totals.future, 'Inclui previsões ainda não confirmadas e compromissos confirmados; separado do saldo de caixa.');
       const alerts = [...warnings];
       if (!limits.withinPlanning) alerts.push('Há prestação recorrente acima do limite de planejamento.');
       if (flow.rows.some(r => !r.limits.withinMonthlyCash)) alerts.push('Há mês em que a prestação compromete a poupança mínima ou supera a capacidade mensal.');
