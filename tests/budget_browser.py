@@ -44,7 +44,7 @@ def run():
             page.locator('#group-construction summary').click()
             change('#group-construction input[data-item="-1"][data-key="value"]', 900000)
             assert page.evaluate('FinancialPlanner.calculate(state).flow.totals.closingCash') == before - 150000
-            page.get_by_role('button', name='3 · Cenários').click()
+            page.get_by_role('button', name='2 · Orçamento').click()
             page.locator('#budgetScheduleSettings > summary').click()
             assert page.locator('#budgetReconciliation tbody tr').count() == 11
             assert page.locator('#budgetReconciliation tr.negative').count() == 0
@@ -52,8 +52,7 @@ def run():
             payment = page.evaluate('state.budgetSchedule.groups[6].payments[0]')
             page.locator('#payment-group-construction select[data-key="status"]').first.select_option('confirmed')
             assert page.locator('#payment-group-construction input[data-key="amount"]').first.is_disabled()
-            change('#plan-projectStartMonth', 3)
-            change('#plan-constructionDelay', 2)
+            page.evaluate('commit(next => {next.planning.projectStartMonth=3;next.planning.constructionDelay=2;})')
             change('#schedule-landMonth', 2)
             change('#schedule-moveDate', '2028-01-10')
             protected = page.evaluate('(id) => state.budgetSchedule.groups[6].payments.find(p => p.id===id)', payment['id'])
@@ -92,7 +91,7 @@ def run():
             page.locator('#import').set_input_files(backup)
             page.wait_for_function("document.getElementById('storageMessage').textContent.includes('Arquivo validado')")
             page.reload()
-            page.get_by_role('button', name='3 · Cenários').click()
+            page.get_by_role('button', name='2 · Orçamento').click()
             assert page.evaluate('BudgetScheduler.resolve(state).totals.paid') == 75000
             page.locator('#budgetScheduleSettings > summary').click()
             page.locator('#payment-group-studies > summary').click()

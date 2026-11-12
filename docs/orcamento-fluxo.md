@@ -1,5 +1,8 @@
 # Integração automática do orçamento ao fluxo de caixa
 
+> Documento do motor técnico anterior, preservado para referência. A aba Cenários atual usa [cenarios-simples.md](cenarios-simples.md), inclusive CET global e ajuda no início. Cronogramas cadastrados continuam disponíveis em Orçamento.
+
+
 Continuação local das Etapas 1 e 2 na branch `feat/vecto-financial-budget`. Os valores continuam hipóteses, não cotações ou curvas técnicas verificadas. Nenhuma publicação é feita automaticamente.
 
 ## O que mudou

@@ -1,5 +1,8 @@
 # Etapa 2 — motor financeiro mensal da VECTO Consult-Casa
 
+> Documento do motor técnico anterior, preservado para referência. A aba Cenários atual usa [cenarios-simples.md](cenarios-simples.md), inclusive CET global e ajuda no início. Cronogramas cadastrados continuam disponíveis em Orçamento.
+
+
 > A integração automática dos 11 grupos foi acrescentada em continuação desta etapa. O manual atual está em [orcamento-fluxo.md](orcamento-fluxo.md). As convenções do motor de dívida abaixo continuam válidas.
 
 Implementação local na branch `feat/vecto-financial-budget`. Não é aprovação de crédito, CET oficial, proposta bancária ou comparação imobiliária validada. Não faz merge, push ou publicação.

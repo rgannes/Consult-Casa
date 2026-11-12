@@ -48,7 +48,11 @@ const baseFields = [
   ['largerApartment', 'Referência do apartamento maior (R$)'],
   ['horizonMonths', 'Horizonte temporal para poupança (meses)', 'integer', 600],
   ['inflation', 'Estresse de alta de custos anual (%)', 'number', 100],
-  ['delay', 'Horizonte do estresse de custos (meses)', 'integer', 600]
+  ['delay', 'Horizonte do estresse de custos (meses)', 'integer', 600],
+  ['bankPercent', 'Comprometimento bancário hipotético (%)', 'number', 100],
+  ['comfortablePayment', 'Prestação máxima confortável para a família (R$)'],
+  ['rent', 'Aluguel atual mensal (R$)'],
+  ['rentIncludedInExpenses', 'Aluguel já incluído nas despesas mensais', 'checkbox']
 ];
 const financeFields = [
   ['credit', 'Crédito solicitado / carta (R$)'], ['annual', 'Juros efetivos anuais (%)', 'number', 100],
@@ -171,7 +175,7 @@ function card(title, value, detail) {
 }
 function renderResources(b, r) {
   $('resourceSummary').innerHTML = card('Disponível hoje sem ajuda', r.nowWithoutHelp, `Reserva descontada do patrimônio: ${money(r.deduction)}. Se já separada, o desconto é zero.`) +
-    card('Ajuda familiar potencial', r.help, 'Não é saldo disponível hoje. No fluxo mensal, entra somente na data escolhida e se confirmada sua utilização.') +
+    card('Ajuda familiar potencial', r.help, 'Nos novos Cenários, é considerada disponível desde o início como hipótese, condicionada à confirmação de sua utilização.') +
     card('Poupança futura projetada', r.futureSavings, `${state.horizonMonths} meses × ${money(state.monthlySavings)}. Sem rentabilidade; aporte não somado novamente à renda.`) +
     card('Recursos potenciais sem calendário', r.projected, `Sem ajuda: ${money(r.projectedWithoutHelp)}. Referência da Etapa 1, não saldo de caixa. Confira datas, aportes e despesas no fluxo mensal antes de usar este valor.`) +
     card('Diferença entre apartamentos', state.largerApartment - state.currentApartment, 'Somente referência: não representa receita de venda, patrimônio líquido ou custo de troca.');
@@ -259,7 +263,7 @@ $('expenses').onclick = event => {
 };
 function render() {
   const b = M.budget(state), r = M.resources(state);
-  renderFields(); renderGroups(b); renderResources(b, r); FinancialView.render(state, commit, M.budget(state)); renderExpenses(b);
+  renderFields(); renderGroups(b); renderResources(b, r); BudgetScheduleView.render(state, commit); HousingView.render(state, commit); renderExpenses(b);
   $('totals').innerHTML = card('Total dos 11 grupos', b.total, `Contingência incluída uma única vez: ${money(b.contingency)}.`) +
     card('Casa sem terreno', b.withoutLand, 'Terreno existente não é novo desembolso; sua disponibilidade precisa ser confirmada no caminho escolhido.') +
     card('Base da contingência', b.contingencyBase, state.contingencyMode === 'percent' ? `${state.contingencyPercent}% desta base + subitens adicionais da contingência.` : 'Modo manual: a base não altera a contingência informada.') +

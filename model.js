@@ -3,6 +3,7 @@
   'use strict';
   const Planner = typeof module !== 'undefined' ? require('./planner') : root.FinancialPlanner;
   const Scheduler = typeof module !== 'undefined' ? require('./budget-schedule') : root.BudgetScheduler;
+  const Homes = typeof module !== 'undefined' ? require('./housing') : root.Housing;
   const VERSION = 2;
   const STORAGE_KEY = 'consult-casa-v2';
   const BACKUP_KEY = 'consult-casa-backup-v2';
@@ -78,12 +79,15 @@
     };
     state.planning = Planner.defaults(state);
     state.budgetSchedule = Scheduler.defaults();
+    Homes.normalize(state);
     return Scheduler.synchronize(state);
   }
-  const numericFields = Object.keys(defaults()).filter(key => typeof defaults()[key] === 'number' && key !== 'schemaVersion');
+  const initialDefaults = defaults();
+  const numericFields = Object.keys(initialDefaults).filter(key => typeof initialDefaults[key] === 'number' && key !== 'schemaVersion');
   function validateCore(state) {
     object(state, 'Dados');
     Planner.validate(state.planning);
+    Homes.validate(state);
     if (state.schemaVersion !== VERSION) fail('Versão de dados incompatível.');
     numericFields.forEach(key => number(state[key], key));
     for (const key of ['months', 'consMonths']) {
@@ -137,6 +141,7 @@
     if (Array.isArray(state?.savedScenarios)) state.savedScenarios.forEach(s => {
       if (s?.data && typeof s.data === 'object' && !own(s.data, 'planning')) s.data.planning = Planner.defaults(s.data);
     });
+    Homes.normalize(state);
     validateCore(state);
     state = Scheduler.synchronize(state);
     if (!Array.isArray(state.savedScenarios) || state.savedScenarios.length > 30) fail('Cenários salvos inválidos (máximo 30).');
@@ -145,7 +150,7 @@
       object(s, 'Cenário salvo'); text(s.id, 'Identificador', 100); text(s.name, 'Nome do cenário', 160);
       text(s.createdAt, 'Data de salvamento', 40);
       if (!s.id || ids.has(s.id) || !Number.isFinite(Date.parse(s.createdAt))) fail('Cenário salvo inválido.');
-      ids.add(s.id); validateCore(s.data);
+      ids.add(s.id); Homes.normalize(s.data); validateCore(s.data);
       s.data = Scheduler.synchronize(s.data);
       if (own(s.data, 'savedScenarios')) fail('Cenários não podem conter outros cenários.');
     });
@@ -234,6 +239,7 @@
     result.expenses = old.expenses.map(e => ({ ...clone(e), groupId: legacyGroup(e.category) }));
     result.planning = Planner.defaults(result);
     result.budgetSchedule = Scheduler.defaults();
+    result.housing = Homes.defaults(result);
     return validate(result);
   }
   function readImport(raw) {
@@ -251,6 +257,7 @@
       // Configurações privadas são pontos de partida, não cotações verificadas.
       merged.scenarioName = 'personalizado';
       if (!own(obj.config, 'planning')) merged.planning = Planner.defaults(merged);
+      if (!own(obj.config, 'housing')) merged.housing = Homes.defaults(merged);
       return validate(merged);
     }
     if (obj.version !== VERSION || obj.type !== 'consult-casa-backup') fail('Formato de arquivo incompatível.');

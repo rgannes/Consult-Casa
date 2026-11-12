@@ -35,7 +35,7 @@ def run():
             accept = [True]
             page.on('dialog', lambda dialog: dialog.accept() if accept[0] else dialog.dismiss())
             page.goto(url)
-            assert page.locator('#results .card').count() == 4
+            assert page.locator('#housingPath option').count() == 4
             assert page.locator('#categories details').count() == 11
             assert page.evaluate('CasaModel.budget(state).total') == 1539500
 
@@ -122,54 +122,29 @@ def run():
             page.wait_for_function("document.getElementById('storageMessage').textContent.includes('Arquivo validado')")
             assert page.evaluate('state.expenses[0].amount') == 123
             page.get_by_role('button', name='3 · Cenários').click()
-            assert page.locator('#plannerError').inner_text()
-            change('#plan-startDate', '2026-11-01')
-            change('#plan-firstDate', '2026-11-01')
-            change('#plan-helpDate', '2026-12-01')
-            change('#plan-months', 420)
-            assert page.locator('#schedule tr').count() == 420
-            assert page.locator('#plannerError').inner_text() == ''
-            assert '2061' in page.locator('#schedule tr').last.inner_text()
-            page.locator('#plan-scheduleView').select_option('annual')
-            assert page.locator('#schedule tr').count() == 36
+            change('#housing-start', '2026-11')
+            change('#home-second-months', 420)
+            assert page.locator('.housing-timeline tbody tr').count() == 12
+            assert page.locator('#housingError').inner_text() == ''
+            page.get_by_role('button', name='Todo o cronograma', exact=True).click()
+            assert page.locator('.housing-timeline tbody tr').count() == 420
+            page.get_by_role('button', name='Períodos anuais', exact=True).click()
+            assert page.locator('.housing-timeline tbody tr').count() == 36
             with page.expect_download() as csv_download:
-                page.get_by_role('button', name='Baixar cronograma CSV').click()
+                page.get_by_role('button', name='Baixar cronograma completo em CSV').click()
             csv = Path(tmp) / 'schedule.csv'
             csv_download.value.save_as(csv)
             assert len(csv.read_text(encoding='utf-8-sig').splitlines()) == 421
-            with page.expect_download() as cash_download:
-                page.get_by_role('button', name='Baixar fluxo de caixa CSV').click()
-            cash_file = Path(tmp) / 'cash.csv'
-            cash_download.value.save_as(cash_file)
-            assert len(cash_file.read_text(encoding='utf-8-sig').splitlines()) == 421
-            page.locator('#plan-scheduleView').select_option('monthly')
-            page.get_by_role('button', name='Adicionar amortização extra', exact=True).click()
-            change('#extraEditor input[data-key="amount"]', 10000)
-            assert page.locator('#schedule tr').count() < 420
-            page.locator('#extraEditor button[data-remove]').click()
-            assert page.locator('#schedule tr').count() == 420
-            page.locator('#constructionSettings summary').click()
-            change('#plan-constructionMonths', 2)
-            change('#plan-amortizationStartMonth', 3)
-            page.locator('#plan-useConstruction').check()
-            page.get_by_role('button', name='Adicionar liberação', exact=True).click()
-            change('#drawEditor input[data-key="month"]', 2)
-            change('#drawEditor input[data-key="amount"]', 10000)
-            assert page.locator('#schedule tr').count() == 422
-            page.get_by_role('button', name='Adicionar encargo', exact=True).click()
-            change('#chargeEditor input[data-key="amount"]', 100)
-            page.get_by_role('button', name='Adicionar pagamento', exact=True).click()
-            change('#paymentEditor input[data-key="amount"]', 100000)
-            assert 'Classifique' in page.locator('#plannerError').inner_text()
-            page.locator('#budgetScheduleSettings summary').first.click()
-            page.locator('#legacyBudgetClassification select').select_option('construction')
-            assert page.locator('#cashRows tr.negative').count() > 0
-            assert page.locator('#plannerError').inner_text() == ''
+            page.locator('#extra-second summary').click()
+            change('#home-second-extraAmount', 10000)
+            assert page.locator('#extra-second').get_attribute('open') is not None
+            assert page.evaluate('Housing.calculate(state).loans[0].result.rows.length') < 420
+            page.locator('#home-second-extraMode').select_option('payment')
+            assert page.evaluate('Housing.calculate(state).loans[0].result.rows.length') == 420
+            change('#home-second-extraAmount', 0)
             page.reload()
             page.get_by_role('button', name='3 · Cenários').click()
-            assert page.locator('#drawEditor input[data-key="amount"]').input_value() == '10000'
-            assert page.locator('#schedule tr').count() == 422
-
+            assert page.locator('#home-second-months').input_value() == '420'
             page.set_viewport_size({'width': 390, 'height': 844})
             page.get_by_role('button', name='1 · Premissas').click()
             assert page.locator('#field-cash').is_visible()
@@ -196,7 +171,7 @@ def run():
             assert page.evaluate('localStorage.getItem("consult-casa-v1") !== null')
             context.close()
             browser.close()
-            print('PASS: interface, 11 grupos, reserva, ajuda, construção, subitens, troca/cancelamento e recuperação de cenários, gastos persistentes, backup JSON, importação inválida/privada, restauração, CSV, migração v1, motor de 420 parcelas, CSV integral em resumo anual, amortização extra, liberações e encargos de obra, caixa negativo, tela móvel e ausência de requisições externas.')
+            print('PASS: interface, 11 grupos, reserva, ajuda, construção, subitens, troca/cancelamento e recuperação de cenários, gastos persistentes, backup JSON, importação inválida/privada, restauração, CSV, migração v1, Cenários simplificados, 420 parcelas, CSV integral em resumo anual e amortização extra, tela móvel e ausência de requisições externas.')
     finally:
         server.shutdown()
         server.server_close()

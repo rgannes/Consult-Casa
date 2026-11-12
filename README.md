@@ -28,7 +28,7 @@ Leia o [manual de uso](docs/uso-v2.html) e a [estrutura, formatos e checklist de
 
 ## Etapa 2: contrato e fluxo mensal
 
-Cronograma completo SAC/Price até 600 parcelas (incluindo 420 meses), seguros e taxas, correção, extras para reduzir prazo/prestação, liberações e encargos de obra, limites bancário/familiar/caixa e fluxo até a última obrigação. CSV integral mesmo no resumo anual. Os quatro caminhos imobiliários são apresentados como **comparações em preparação**, sem resultados completos ainda validados.
+Cronograma completo SAC/Price até 600 parcelas (incluindo 420 meses), seguros e taxas, correção, extras para reduzir prazo/prestação, liberações e encargos de obra, limites bancário/familiar/caixa e fluxo até a última obrigação. CSV integral mesmo no resumo anual. O motor técnico original é preservado para compatibilidade. A experiência atual dos quatro caminhos usa as convenções simplificadas documentadas abaixo, sem se apresentar como proposta bancária.
 
 Leia o [manual do motor](docs/uso-motor.html) e a [documentação técnica e roteiro de revisão](docs/etapa2-financeiro.md). A extensão `planning` mantém o formato de backup v2 e adapta arquivos antigos sem apagar orçamento, gastos ou cenários. Datas devem ser escolhidas antes de calcular. Não é CET oficial nem aprovação de crédito.
 
@@ -37,6 +37,12 @@ Leia o [manual do motor](docs/uso-motor.html) e a [documentação técnica e rot
 Os 11 grupos geram pagamentos únicos ou mensais, com edição manual/profissional e proteção de confirmados, pagos e fixados. Gastos vinculados substituem a previsão, inclusive em pagamentos parciais. Há reconciliação por grupo, migração de v2 e classificação explícita de pagamentos manuais antigos para evitar dupla contagem.
 
 Leia o [manual da integração](docs/uso-orcamento-fluxo.html) e as [regras detalhadas](docs/orcamento-fluxo.md). Teste adicional no navegador: `python tests/budget_browser.py` (Playwright/Chromium já disponíveis).
+
+## Cenários simplificados: quatro caminhos
+
+A aba Cenários agora calcula apenas o caminho escolhido, com CET global hipotético, entrada/crédito automáticos editáveis e linhas do tempo familiares. Compras, vendas, quitação e obrigações simultâneas usam um único patrimônio. O prazo de construção inclui obra e amortização, sem acrescentar meses escondidos.
+
+Veja o [guia curto](docs/cenarios-simples.html) e as [regras completas](docs/cenarios-simples.md). O orquestrador novo é `housing.js`; a interface é `housing-ui.js`. Os motores e dados técnicos anteriores permanecem preservados. Cronogramas antigos ficam no detalhe opcional de Orçamento. Teste adicional: `python tests/housing_browser.py`.
 
 ## Privacidade
 
