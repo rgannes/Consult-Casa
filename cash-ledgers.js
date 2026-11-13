@@ -37,7 +37,7 @@
       const personalRow = { month: fact.month, date: fact.date, openingCash, capacity, rental,
         apartmentFunding, saleGross, apartmentPayments, financing, transferPlanned,
         transferToProject: transfer, unmetTransfer, closingCash: personal,
-        savingPossible: E.cents(Math.max(0, capacity - apartmentPayments - financing - transfer)),
+        savingPossible: E.cents(capacity - financing),
         wealthWithdrawal: E.cents(Math.max(0, openingCash - personal)), shortage: personal < 0 };
       const projectRow = { month: fact.month, date: fact.date, openingCash: openingProject,
         ownTransfers: transfer, bankFunding, supplierPayments, closingCash: project,

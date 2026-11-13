@@ -134,15 +134,34 @@ function metadataFields(g, item, value) {
     <label>Status${editField(g, item, 'status', value.status, 'status')}</label>
     <label>Inclusões / exclusões e observações${editField(g, item, 'notes', value.notes, 'textarea')}</label>`;
 }
+function fundingFields(i, j, value) {
+  return `<label>Cobertura pelo banco<select data-group="${i}" data-item="${j}" data-key="financeability">${(j < 0 ? [] : [['inherit','Usar classificação do grupo']]).concat([['none','Não financiável · recursos próprios'],['potential','Potencialmente financiável · depende do banco'],['partial','Financiável parcialmente']]).map(([v,l])=>`<option value="${v}" ${value.financeability===v?'selected':''}>${l}</option>`).join('')}</select></label>${value.financeability === 'partial' ? `<label>Percentual elegível (%)${editField(i,j,'financePercent',value.financePercent,'number')}</label>` : ''}`;
+}
+function timingFields(i, j, item) {
+  const construction = state.groups[i].id === 'construction';
+  return `<label>Data prevista de pagamento${editField(i,j,'paymentDate',item.paymentDate,'date')}</label>${fundingFields(i,j,item)}${construction ? `
+    <label>Início estimado da fase${editField(i,j,'phaseStart',item.phaseStart,'date')}</label>
+    <label>Duração estimada (meses)${editField(i,j,'durationMonths',item.durationMonths,'number')}</label>
+    <label>Conclusão estimada (vazio = início + duração)${editField(i,j,'phaseEnd',item.phaseEnd,'date')}</label>
+    <p>Conclusão calculada: ${esc(BudgetScheduler.phaseEnd(item) || 'Informe o início ou a conclusão')}.</p>` : ''}
+    <label class="check">${editField(i,j,'measurement',item.measurement,'checkbox')}Prever medição e reembolso deste item (sujeito ao banco)</label>
+    ${item.measurement ? `<label>Valor previsto da medição (R$)${editField(i,j,'measurementValue',item.measurementValue,'number')}</label>${!construction ? `<label>Conclusão estimada${editField(i,j,'phaseEnd',item.phaseEnd,'date')}</label>` : ''}<label>Prazo até recebimento (dias; vazio = padrão dos Cenários)<input data-group="${i}" data-item="${j}" data-key="releaseDelayDays" type="number" min="0" max="3650" step="1" value="${item.releaseDelayDays ?? ''}"></label>` : ''}`;
+}
+function groupTiming(i) {
+  const g = state.budgetSchedule.groups[i];
+  return `<div class="grid"><label>Quando pagar o saldo do grupo<select data-schedule="${i}" data-key="mode">${[['single','Uma data'],['monthly','Durante um período'],['manual','Cronograma profissional / protegido']].map(([v,l])=>`<option value="${v}" ${g.mode===v?'selected':''}>${l}</option>`).join('')}</select></label>
+    <label>Data inicial de pagamento (vazio = regra provisória)<input data-schedule="${i}" data-key="startDate" type="date" value="${esc(g.startDate || '')}"></label>
+    ${g.mode==='monthly'?`<label>Duração dos pagamentos (meses)<input data-schedule="${i}" data-key="months" type="number" min="1" max="1200" step="1" value="${BudgetScheduler.windowFor(state,g).months}"></label>`:''}</div>`;
+}
 function renderGroups(b) {
   const open = [...$('categories').querySelectorAll('details[open]')].map(d => d.id);
   $('categories').innerHTML = state.groups.map((g, i) => {
     const calculated = (g.id === 'construction' && state.constructionMode === 'area') || (g.id === 'contingency' && state.contingencyMode === 'percent');
     const baseLabel = g.id === 'construction' ? 'Orçamento global recebido (R$; ativo apenas no método global)' : g.id === 'contingency' ? 'Contingência manual (R$; ativa apenas no modo manual)' : 'Valor-base do grupo (R$)';
     return `<details id="group-${g.id}" ${open.includes(`group-${g.id}`) ? 'open' : ''}><summary>${i + 1}. ${esc(g.label)} — ${money(b.values[g.id])}</summary>
-      <div class="grid group-fields"><label>${baseLabel}${editField(i, -1, 'value', g.value, 'number', calculated)}</label>${metadataFields(i, -1, g)}</div>
+      <div class="grid group-fields"><label>${baseLabel}${editField(i, -1, 'value', g.value, 'number', calculated)}</label>${metadataFields(i, -1, g)}${fundingFields(i,-1,g)}</div>${groupTiming(i)}
       <p class="small">${calculated ? 'Valor-base calculado pelo método ativo; o valor manual é guardado, mas não é somado. ' : ''}Subitens já incluídos apenas detalham a proposta; somente subitens marcados como adicionais são somados ao valor-base. Status não altera o orçamento nem cria um pagamento no controle de gastos.</p>
-      ${g.subitems.map((item, j) => `<div class="subitem"><h4>Subitem ${j + 1}</h4><div class="grid"><label>Valor do subitem (R$)${editField(i, j, 'value', item.value, 'number')}</label>${metadataFields(i, j, item)}<label class="check">${editField(i, j, 'includedInGroup', item.includedInGroup, 'checkbox')}Já incluído no valor-base (não somar novamente)</label></div><button class="danger" data-delete-group="${i}" data-delete-item="${j}">Excluir subitem</button></div>`).join('')}
+      ${g.subitems.map((item, j) => `<div class="subitem"><h4>${g.id === 'construction' ? 'Fase / subitem' : 'Subitem'} ${j + 1}</h4><div class="grid"><label>Valor do subitem (R$)${editField(i, j, 'value', item.value, 'number')}</label>${metadataFields(i, j, item)}${timingFields(i,j,item)}<label class="check">${editField(i, j, 'includedInGroup', item.includedInGroup, 'checkbox')}Já incluído no valor-base (não somar novamente)</label></div><button class="danger" data-delete-group="${i}" data-delete-item="${j}">Excluir subitem</button></div>`).join('')}
       <button data-add-group="${i}">Adicionar subitem</button></details>`;
   }).join('');
 }
@@ -151,18 +170,25 @@ $('categories').onchange = event => {
   if (!input.dataset.key) return;
   if (!input.checkValidity()) { input.reportValidity(); return; }
   commit(next => {
+    if (input.dataset.schedule !== undefined) {
+      const g=next.budgetSchedule.groups[Number(input.dataset.schedule)];
+      if (g.mode==='manual' && input.dataset.key==='mode') g.payments.forEach(p=>p.fixed=true);
+      g[input.dataset.key]=input.type==='number'?Number(input.value):input.value;
+      if (input.dataset.key==='months') { const w=BudgetScheduler.windowFor(next,g); g.startMonth=w.start; g.followTimeline=false; }
+      return;
+    }
     const group = next.groups[Number(input.dataset.group)];
     const itemIndex = Number(input.dataset.item);
     const target = itemIndex < 0 ? group : group.subitems[itemIndex];
-    target[input.dataset.key] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
-  }, true);
+    target[input.dataset.key] = input.dataset.key==='releaseDelayDays' && input.value==='' ? null : input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
+  }, true, true);
 };
 $('categories').onclick = event => {
   const button = event.target.closest('button');
   if (!button) return;
   if (button.dataset.addGroup !== undefined) commit(next => {
     next.groups[Number(button.dataset.addGroup)].subitems.push({
-      id: uniqueId(), description: 'Novo subitem', value: 0, source: '', referenceDate: '',
+      id: uniqueId(), description: next.groups[Number(button.dataset.addGroup)].id==='construction' ? 'Nova fase' : 'Novo subitem', value: 0, source: '', referenceDate: '',
       status: 'estimado', notes: '', includedInGroup: true
     });
   }, true);

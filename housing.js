@@ -17,8 +17,9 @@
     return `${parts.find(p => p.type === 'year').value}-${parts.find(p => p.type === 'month').value}-01`;
   }
   function profile(source, build = false) {
-    return { entry: null, credit: null, months: source.months ?? 420, cet: source.annual ?? 11,
+    return { entry: null, credit: null, ownTransfer: null, months: source.months ?? 420, cet: source.annual ?? 11,
       system: source.system || 'SAC', buildMonths: Math.min(599, (source.planning?.constructionMonths || 12) + (source.planning?.constructionDelay || 0)),
+      coveragePercent: 100, releaseDelayDays: 30,
       extraAmount: 0, extraMonth: build ? Math.min(600, (source.planning?.constructionMonths || 12) + (source.planning?.constructionDelay || 0) + 1) : 12, extraMode: 'term' };
   }
   function defaults(source = {}) {
@@ -40,6 +41,12 @@
     if (state.comfortablePayment === undefined) state.comfortablePayment = state.planning?.comfortablePayment ?? 0;
     if (state.rent === undefined) state.rent = state.planning?.rent ?? 0;
     if (state.rentIncludedInExpenses === undefined) state.rentIncludedInExpenses = state.planning?.rentIncludedInBase ?? true;
+    for (const path of Object.values(state.housing.paths || {})) for (const key of ['first','second']) {
+      const p=path[key]; if (!p) continue;
+      if (p.ownTransfer === undefined) p.ownTransfer=null;
+      if (p.coveragePercent === undefined) p.coveragePercent=100;
+      if (p.releaseDelayDays === undefined) p.releaseDelayDays=30;
+    }
     const baseline = state.housing.cashBaseline;
     if (baseline && baseline.savings !== state.monthlySavings) state.housing.cashBaseline = {
       income: state.income, expenses: state.essential, savings: state.monthlySavings };
@@ -59,7 +66,9 @@
       const p = h.paths[id]; if (!p || typeof p !== 'object') throw Error('Configuração do caminho ausente.');
       for (const which of ['first', 'second']) if (which === 'second' || id === 'buyThenBuild' || id === 'buyThenUpgrade') {
         const loan = p[which]; if (!loan) throw Error('Financiamento ausente.');
-        for (const key of ['entry', 'credit']) if (loan[key] !== null) number(loan[key], key);
+        for (const key of ['entry', 'credit', 'ownTransfer']) if (loan[key] !== null) number(loan[key], key);
+        number(loan.coveragePercent, 'Cobertura da parte elegível', 100); number(loan.releaseDelayDays, 'Prazo de aprovação e liberação', 3650);
+        if (!Number.isInteger(loan.releaseDelayDays)) throw Error('Prazo de liberação em dias inteiros.');
         number(loan.cet, 'CET hipotético', 100); month(loan.months, 'Prazo', 600); month(loan.buildMonths, 'Prazo de obra', 599);
         number(loan.extraAmount, 'Amortização extra'); month(loan.extraMonth, 'Mês da extra', 600);
         if (!['SAC', 'Price'].includes(loan.system) || !['term', 'payment'].includes(loan.extraMode)) throw Error('Amortização inválida.');
@@ -90,23 +99,22 @@
     if (principal > E.cents(cost)) throw Error('O financiamento não pode superar o custo desta aquisição/etapa.');
     return { entry: E.cents(cost - principal), principal, requestedEntry: chosenEntry, adjusted: credit !== null };
   }
-  function split(amount, months) {
-    const c = Math.round(amount * 100), q = Math.floor(c / months), rest = c % months;
-    return Array.from({ length: months }, (_, i) => (q + (i < rest ? 1 : 0)) / 100);
-  }
-  function loan(profile, principal, startDate, startMonth, build = false) {
+  function loan(profile, principal, startDate, startMonth, build = false, measurements = []) {
     if (build && principal > 0 && profile.months <= profile.buildMonths) throw Error('O prazo total do financiamento deve ser maior que o tempo de obra e regularização.');
-    const amortizationMonths = build ? Math.max(1, profile.months - profile.buildMonths) : profile.months;
+    const draws = measurements.filter(m=>m.amount>0).map(m=>({ month: E.monthOffset(E.addMonths(startDate,startMonth-1),m.releaseDate)+1, amount:m.amount, date:m.releaseDate }));
+    const phaseMonths = build ? Math.max(profile.buildMonths, ...draws.map(d=>d.month)) : 0;
+    if (build && principal > 0 && profile.months <= phaseMonths) throw Error('O prazo total precisa superar a conclusão e a última liberação; revise as datas das medições.');
+    const amortizationMonths = build ? Math.max(1, profile.months - phaseMonths) : profile.months;
     if (profile.extraAmount > 0 && profile.extraMonth > profile.months) throw Error('A amortização extra está após o prazo do financiamento.');
-    if (build && profile.extraAmount > 0 && profile.extraMonth <= profile.buildMonths) throw Error(`A amortização extra deve ocorrer após a obra, a partir do mês ${profile.buildMonths + 1} do financiamento.`);
+    if (build && profile.extraAmount > 0 && profile.extraMonth <= phaseMonths) throw Error(`A amortização extra deve ocorrer após a obra, a partir do mês ${phaseMonths + 1} do financiamento.`);
     const firstDate = E.addMonths(startDate, build ? startMonth - 1 : startMonth);
     const extras = profile.extraAmount > 0 ? [{ month: profile.extraMonth, amount: profile.extraAmount }] : [];
     return E.loanSchedule({ principal, annualRate: profile.cet, months: amortizationMonths, system: profile.system,
       firstDate, fundingDate: E.addMonths(startDate, startMonth - 1),
       fees: 0, upfront: 0, insuranceFixed: 0, insurancePercentMonthly: 0, indexAnnual: 0,
       extraMode: profile.extraMode, extraPayments: extras,
-      construction: build ? { phaseMonths: profile.buildMonths, amortizationStartMonth: profile.buildMonths + 1, capitalizeInterest: false,
-        draws: split(principal, profile.buildMonths).map((amount, i) => ({ month: i + 1, amount })), charges: [] } : null });
+      construction: build ? { phaseMonths, amortizationStartMonth: phaseMonths + 1, capitalizeInterest: false,
+        draws, charges: [] } : null });
   }
   function settle(result, saleMonth, startDate) {
     const r = clone(result);
@@ -210,13 +218,33 @@
       const beforeBuild = schedule.events.filter(e => e.month < p.stage2Month);
       const financingCost = sum(schedule.events.filter(e => e.month >= p.stage2Month), 'amount');
       const funding = amounts(financingCost, p.second.entry, p.second.credit, available(p.stage2Month, beforeBuild));
-      const result = loan(p.second, funding.principal, h.startDate, p.stage2Month, true);
+      const finance = B.financing(schedule.state, funding.principal, p.second.coveragePercent, p.second.releaseDelayDays);
+      const validMeasurements = finance.measurements.filter(m => index(m.releaseDate) >= p.stage2Month);
+      if (validMeasurements.length !== finance.measurements.length) warnings.push('Reembolsos anteriores ao início da construção não foram creditados novamente. Revise as datas ou o patrimônio na origem.');
+      finance.disbursed = E.cents(validMeasurements.reduce((s,m)=>s+m.amount,0));
+      finance.ownCosts = E.cents(schedule.totals.budget - finance.disbursed);
+      finance.measurements = validMeasurements;
+      const futureCost = sum(schedule.events, 'amount');
+      const requiredOwn = E.cents(futureCost - finance.disbursed);
+      const dated = [...schedule.events.map(e=>({ date:e.date || E.addMonths(h.startDate,e.month-1), amount:e.amount })),
+        ...validMeasurements.map(m=>({date:m.releaseDate,amount:-m.amount}))].sort((a,b)=>a.date.localeCompare(b.date) || b.amount-a.amount);
+      let net=0, peak=0;
+      for(const e of dated){ net=E.cents(net+e.amount);peak=Math.max(peak,net); }
+      finance.workingCapital=E.cents(Math.max(0,peak-requiredOwn));
+      if(finance.workingCapital>0) warnings.push(`Pagamentos antecipam reembolsos: capital de giro adicional estimado de R$ ${finance.workingCapital.toFixed(2)}, além dos recursos próprios definitivos. Datas conhecidas são consideradas; sem dia informado, usa-se o início do mês por prudência.`);
+      warnings.push(...finance.warnings);
+      funding.requestedPrincipal = funding.principal;
+      funding.principal = finance.disbursed;
+      funding.entry = E.cents(financingCost - finance.disbursed);
+      funding.plannedTransfer = p.second.ownTransfer ?? p.second.entry ?? funding.entry;
+      funding.finance = finance;
+      const result = loan(p.second, funding.principal, h.startDate, p.stage2Month, true, validMeasurements);
       loans.push({ id: 'second', result });
       events.push(...schedule.events.map(e => ({ ...e, stage: 'second', account: 'construction' })));
       stages.push({ id: 'second', label: twoStages ? 'Etapa 2 · Construção da casa' : 'Construção da casa', startMonth: Math.min(p.stage2Month, ...schedule.events.map(e => e.month)),
         constructionStart: p.stage2Month, moveMonth, cost: schedule.totals.budget, additionalCosts: schedule.totals.additional, funding,
         profile: clone(p.second), build: true, schedule });
-      warnings.push('Encargos de obra aproximados: o crédito é liberado em partes iguais, com a taxa global hipotética. O CET não permite reproduzir precisamente seguros, tarifas e juros contratuais.');
+      warnings.push('Medições, percentuais e prazos de reembolso são hipóteses até aprovação do banco. Encargos usam a taxa global estimada apenas sobre valores liberados; o CET não reproduz precisamente o contrato. A projeção mensal não garante liquidez em cada dia.');
       if (beforeBuild.length) warnings.push('Cronogramas reais/protegidos anteriores ao início da obra foram mantidos. Confira as datas em Orçamento.');
       if (state.planning.fee || state.planning.upfront || state.planning.index || state.planning.constructionCharges.length) warnings.push('Parâmetros técnicos antigos foram preservados no backup, mas não são somados à taxa global deste modelo simplificado.');
     } else purchase('second', twoStages ? 'Etapa 2 · Apartamento maior' : 'Apartamento maior', state.largerApartment,
@@ -252,7 +280,7 @@
       // Plano finito: despesas anteriores à construção + aporte de entrada no começo da obra.
       // Não se criam aportes por ocorrência de déficit nem se reaplicam automaticamente os não realizados.
       const transferPlanned = !buildStage ? 0 : month < buildStage.constructionStart ? constructionPayments :
-        month === buildStage.constructionStart ? buildStage.funding.entry : 0;
+        month === buildStage.constructionStart ? buildStage.funding.plannedTransfer : 0;
       ledgerFacts.push({ month, date: E.addMonths(h.startDate, month - 1), capacity: baseCapacity,
         rental: isRenting(month) ? rent : 0, saleGross, apartmentPayments: E.cents(housing - constructionPayments),
         apartmentFunding: E.cents(funding - constructionFunding), financing: E.cents(debtPayment),
@@ -260,7 +288,7 @@
       const activePhases = stages.filter(s => month >= s.startMonth && (s.id === 'second' || !twoStages || month < p.stage2Month || byStage[s.id].balance > 0 || byStage[s.id].debt > 0)).map(s => `${s.label}: ${byStage[s.id].phase}`);
       rows.push({ month, date: E.addMonths(h.startDate, month - 1), phase: activePhases.join(' + ') || 'Antes da próxima etapa',
         capacity: baseCapacity, financing: E.cents(debtPayment), recurring: E.cents(recurring),
-        rental: isRenting(month) ? rent : 0, saleGross, debtBalance: E.cents(debtBalance), regularSaving: E.cents(baseCapacity - recurring),
+        rental: isRenting(month) ? rent : 0, saleGross, debtBalance: E.cents(debtBalance), regularSaving: E.cents(baseCapacity - debtPayment),
         excessivePayment: recurring > limit + .001 || baseCapacity - recurring < 0, byStage });
     }
     const ledgers = L.separate({ initialCash: initial, rows: ledgerFacts });
@@ -315,10 +343,10 @@
         bankLimit: E.cents((state.grossIncome1 + state.grossIncome2) * state.bankPercent / 100), familyLimit: state.comfortablePayment } };
   }
   const columns = [['month', 'Mês'], ['date', 'Data'], ['phase', 'Fase'], ['openingCash', 'Saldo pessoal inicial'],
-    ['capacity', 'Capacidade pessoal (aluguel já tratado)'], ['projectPayments', 'Compras/vendas de apartamentos e despesas pessoais'],
+    ['projectPayments', 'Compras/vendas de apartamentos e despesas pessoais'],
     ['financing', 'Encargos/prestações/quitações pessoais'], ['rental', 'Aluguel (já na capacidade)'],
     ['transferToProject', 'Transferência pessoal para obra'], ['unmetTransfer', 'Aporte planejado não realizado'],
-    ['funding', 'Crédito de apartamento'], ['saleGross', 'Venda de apartamento'], ['savingPossible', 'Poupança pessoal possível'],
+    ['funding', 'Crédito de apartamento'], ['saleGross', 'Venda de apartamento'], ['savingPossible', 'Poupança pessoal possível no mês'],
     ['wealthWithdrawal', 'Retirada do patrimônio pessoal'], ['closingCash', 'Saldo pessoal final'],
     ['openingConstructionCash', 'Saldo inicial da obra'], ['transferToProject', 'Aporte próprio recebido pela obra'],
     ['constructionFunding', 'Liberação/reembolso recebido pela obra'], ['constructionPayments', 'Fornecedores/despesas da obra'],

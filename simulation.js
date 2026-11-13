@@ -60,6 +60,7 @@
       if (start <= c.phaseMonths) throw Error('Nesta hipótese, amortização começa após a obra; ajuste a carência.');
       bool(c.capitalizeInterest, 'Capitalizar juros de obra'); capitalize = c.capitalizeInterest;
       eventList(c.draws, 'Liberações'); draws = c.draws.map(d => ({ ...d, amount: cents(d.amount) }));
+      for (const d of draws) if (d.date) { date(d.date); if (monthOffset(o.firstDate, d.date) + 1 !== d.month) throw Error('Data e mês da liberação incompatíveis.'); }
       if (draws.some(d => d.month >= start || d.month > c.phaseMonths)) throw Error('Liberações devem ocorrer durante a obra e antes da amortização.');
       if (cents(draws.reduce((s, d) => s + d.amount, 0)) > cents(o.principal)) throw Error('Liberações excedem o crédito contratado.');
       if (!Array.isArray(c.charges) || c.charges.length > 200) throw Error('Encargos de obra inválidos.');
@@ -71,7 +72,7 @@
     const maxMonths = start - 1 + o.months;
     if (o.extraPayments.some(e => e.month > maxMonths)) throw Error('Amortização extra fora do prazo contratual.');
     const disbursed = cents(o.construction ? draws.reduce((s, d) => s + d.amount, 0) : o.principal);
-    const funding = o.construction ? draws.filter(d => d.amount > 0).map(d => ({ date: addMonths(o.firstDate, d.month - 1), amount: cents(d.amount) })) :
+    const funding = o.construction ? draws.filter(d => d.amount > 0).map(d => ({ date: d.date || addMonths(o.firstDate, d.month - 1), amount: cents(d.amount) })) :
       disbursed ? [{ date: o.fundingDate || o.firstDate, amount: disbursed }] : [];
     funding.sort((a, b) => a.date.localeCompare(b.date));
     const rows = [], warnings = [];

@@ -46,9 +46,15 @@ Veja o [guia curto](docs/cenarios-simples.html) e as [regras completas](docs/cen
 
 ## Correção 1: dois caixas
 
-`cash-ledgers.js` separa o caixa pessoal do caixa da obra e valida a conciliação mensal. Aportes próprios são finitos e limitados à disponibilidade pessoal; banco e fornecedores ficam na obra. Juros/prestações continuam pessoais. O detalhe da obra é expansível, sem novos campos técnicos ou regras de datas/financiabilidade.
+`cash-ledgers.js` separa o caixa pessoal do caixa da obra e valida a conciliação mensal. Aportes próprios são finitos e limitados à disponibilidade pessoal; banco e fornecedores ficam na obra. Juros/prestações continuam pessoais. O detalhe da obra é expansível, com aportes finitos, sem misturar patrimônio pessoal e reembolsos.
 
 Leia [dois-caixas.md](docs/dois-caixas.md). Verificação adicional: `python tests/ledgers_browser.py`.
+
+## Datas, fases e reembolsos
+
+A construção agora usa medições explicitamente cadastradas, elegibilidade por grupo/subitem, cobertura e limite solicitado. Não há liberação mensal uniforme automática. Datas de pagamento são independentes das cotações, e subitens incluídos distribuem o valor-base sem duplicá-lo. A interface mostra custo próprio definitivo, capital de giro e uma única coluna principal de poupança, com explicações acessíveis.
+
+Veja o [roteiro de revisão e regras atuais](docs/medicoes-e-reembolsos.md), que substitui as convenções anteriores de liberação uniforme. Testes adicionais: `node --test tests/project-financing.test.js` e `python tests/project_browser.py`. A identidade visual completa aguarda os arquivos de marca acessíveis; o rodapé VECTO já foi incluído.
 
 ## Privacidade
 

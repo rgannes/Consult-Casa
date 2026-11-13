@@ -13,6 +13,9 @@ function smallBuild(s) {
   s.groups.forEach(g => { g.value = 0; }); s.constructionMode = 'global'; s.groups[6].value = 120000;
   s.housing.paths[s.housing.selectedPath].second.entry = 20000;
   Object.assign(s.housing.paths[s.housing.selectedPath].second, { months: 24, buildMonths: 6, cet: 12 });
+  s.groups[6].subitems=Array.from({length:6},(_,i)=>({id:`phase-${i}`,description:`Medição ${i+1}`,value:20000,
+    source:'Proposta fictícia',referenceDate:'',status:'estimado',notes:'',includedInGroup:true,
+    measurement:true,measurementValue:20000,phaseEnd:E.addMonths('2027-01-01',i),releaseDelayDays:0}));
   return s;
 }
 for (const system of ['SAC', 'Price']) test(`modelo global ${system}: 420 parcelas sem encargos somados duas vezes`, () => {
@@ -63,7 +66,7 @@ test('aluguel incluído é considerado uma vez e liberado apenas depois da mudan
 });
 test('duas dívidas simultâneas saem das finanças pessoais e somam as parcelas', () => {
   const s = smallBuild(fixture('buyThenBuild')), p = s.housing.paths.buyThenBuild;
-  p.stage2Month = 3; p.first.entry = 60000; p.second.entry = 0;
+  p.stage2Month = 3; s.groups[6].subitems.forEach((item,i)=>item.phaseEnd=E.addMonths('2027-03-01',i)); p.first.entry = 60000; p.second.entry = 0;
   const r = H.calculate(s); const row = r.rows[9];
   assert.ok(row.byStage.first.recurring > 0 && row.byStage.second.recurring > 0);
   assert.equal(row.recurring, E.cents(row.byStage.first.recurring + row.byStage.second.recurring));

@@ -32,6 +32,9 @@ def run():
               s.groups.forEach(g=>g.value=0);s.constructionMode='global';s.groups[6].value=120000;
               s.housing=Housing.defaults(s);s.housing.selectedPath='rentBuild';s.housing.startDate='2027-01-01';
               Object.assign(s.housing.paths.rentBuild.second,{entry:30000,months:420,buildMonths:3,cet:0});
+              s.groups[6].subitems=Array.from({length:3},(_,i)=>({id:`phase-${i}`,description:`Medição ${i+1}`,value:40000,
+                source:'Proposta fictícia',referenceDate:'',status:'estimado',notes:'',includedInGroup:true,
+                measurement:true,measurementValue:30000,phaseEnd:FinancialEngine.addMonths('2027-01-01',i),releaseDelayDays:0}));
               const g=s.budgetSchedule.groups[6];g.mode='manual';g.payments=[
               {id:'prof1',month:1,amount:90000,status:'confirmed',fixed:true,origin:'manual'},
               {id:'prof2',month:3,amount:30000,status:'confirmed',fixed:true,origin:'manual'}];

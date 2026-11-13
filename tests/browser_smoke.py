@@ -123,6 +123,11 @@ def run():
             assert page.evaluate('state.expenses[0].amount') == 123
             page.get_by_role('button', name='3 · Cenários').click()
             change('#housing-start', '2026-11')
+            # Cronograma bancário explícito: sem medições não há crédito presumido.
+            page.evaluate("""() => commit(s => {const g=s.groups[6],v=CasaModel.budget(s).construction-g.subitems.reduce((sum,item)=>sum+item.value,0);
+              g.subitems.push({id:'medicao-smoke',description:'Medição fictícia',value:v,source:'Teste',referenceDate:'',
+                status:'estimado',notes:'',includedInGroup:true,measurement:true,measurementValue:v,
+                phaseEnd:'2026-11-01',releaseDelayDays:0});})""")
             change('#home-second-months', 420)
             assert page.locator('.housing-timeline tbody tr').count() == 12
             assert page.locator('#housingError').inner_text() == ''

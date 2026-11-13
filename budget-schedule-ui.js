@@ -59,7 +59,7 @@
           const p = g.payments[row];
           if (key === 'status') p.status = el.value;
           else if (key === 'fixed') p.fixed = el.checked;
-          else { p[key] = Number(el.value); p.origin = 'manual'; g.mode = 'manual'; }
+          else { if (key === 'month') delete p.date; p[key] = Number(el.value); p.origin = 'manual'; g.mode = 'manual'; }
         } else {
           if (['startMonth', 'months'].includes(key) || (key === 'followTimeline' && !el.checked)) {
             const old = B.windowFor(next, g); g.startMonth = old.start; g.months = old.months; g.followTimeline = false;

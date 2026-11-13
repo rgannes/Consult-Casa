@@ -10,6 +10,11 @@ function fixture(path = 'rentBuild') {
   s.groups.forEach(g => { g.value = 0; }); s.constructionMode = 'global'; s.groups[6].value = 120000;
   s.housing = H.defaults(s); s.housing.startDate = '2027-01-01'; s.housing.selectedPath = path;
   Object.assign(s.housing.paths[path].second, { entry: 30000, credit: null, months: 12, buildMonths: 3, cet: 0 });
+  // Proposta explícita de teste: três medições aceitas de 30 mil, sem prazo adicional.
+  // Não se presume mais uma distribuição bancária mensal na aplicação.
+  s.groups[6].subitems = Array.from({length:3},(_,i)=>({id:`measurement-${i}`,description:`Medição ${i+1}`,value:40000,
+    source:'Contrato fictício',referenceDate:'',status:'estimado',notes:'',includedInGroup:true,
+    measurement:true,measurementValue:30000,phaseEnd:E.addMonths('2027-01-01',i),releaseDelayDays:0}));
   return M.validate(s);
 }
 function reconcile(result) {
@@ -144,6 +149,7 @@ test('apartamentos mantêm compras/vendas no caixa pessoal e não usam caixa da 
 test('venda de apartamento no caminho de construção não vira aporte automático', () => {
   const s = fixture('buyThenBuild'), p = s.housing.paths.buyThenBuild;
   Object.assign(p, { stage2Month: 3, sell: true, saleMonth: 5, saleCosts: 1000 }); p.first.entry = 60000;
+  s.groups[6].subitems.forEach((item,i)=>item.phaseEnd=E.addMonths('2027-03-01',i));
   const r = H.calculate(s); reconcile(r);
   assert.equal(r.rows[4].saleGross, 300000);
   assert.equal(r.rows[4].transferToProject, 0);
@@ -168,7 +174,7 @@ test('gastos vinculados não duplicam fornecedor nem se tornam despesa pessoal',
   assert.equal(r.rows.reduce((sum, row) => sum + row.projectPayments, 0), 0);
   assert.deepEqual(M.readImport(M.exportData(s)), s);
 });
-test('nenhuma nova regra de datas ou financiabilidade é introduzida no orçamento', () => {
+test('cálculo preserva os dados de orçamento, datas e financiabilidade sem mutar o original', () => {
   const s = fixture(); const before = JSON.stringify({ groups: s.groups, budgetSchedule: s.budgetSchedule, planning: s.planning });
   H.calculate(s);
   assert.equal(JSON.stringify({ groups: s.groups, budgetSchedule: s.budgetSchedule, planning: s.planning }), before);

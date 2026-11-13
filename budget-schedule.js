@@ -19,6 +19,62 @@
       baseNoLand: amount - values.land - values.contingency,
       stress: (amount - values.land) * Math.pow(1 + state.inflation / 100, state.delay / 12) + values.land };
   }
+  // Extensão aditiva: nunca transforma a data de cotação em data de pagamento.
+  function normalize(state) {
+    for (const g of state.groups) {
+      if (g.financeability === undefined) g.financeability = g.id === 'construction' ? 'potential' : 'none';
+      if (g.financePercent === undefined) g.financePercent = 100;
+      for (const item of g.subitems) {
+        for (const [key, value] of Object.entries({ paymentDate: '', phaseStart: '', durationMonths: 1, phaseEnd: '',
+          measurement: false, measurementValue: item.value, releaseDelayDays: null, financeability: 'inherit', financePercent: 100 })) {
+          if (item[key] === undefined) item[key] = value;
+        }
+      }
+    }
+    return state;
+  }
+  function phaseEnd(item) {
+    if (item.phaseEnd || !item.phaseStart) return item.phaseEnd || '';
+    const end = new Date(E.addMonths(item.phaseStart, item.durationMonths) + 'T12:00:00Z');
+    end.setUTCDate(end.getUTCDate()-1);
+    return end.toISOString().slice(0,10);
+  }
+  function eligible(value, item, group) {
+    const rule = item?.financeability === 'inherit' || !item ? group : item;
+    return E.cents(value * (rule.financeability === 'none' ? 0 : rule.financeability === 'partial' ? rule.financePercent / 100 : 1));
+  }
+  function financing(state, principal, coveragePercent = 100, delayDays = 30) {
+    const b = budget(state), warnings = [], measurements = [];
+    let eligibleCosts = 0;
+    for (const g of state.groups) {
+      const detailed = E.cents(g.subitems.reduce((s, i) => s + i.value, 0));
+      if (detailed > b.values[g.id]) { warnings.push(`${g.label}: detalhamento excede o orçamento; reembolsos deste grupo suspensos até conciliação.`); continue; }
+      const residual = Math.max(0, E.cents(b.values[g.id] - detailed));
+      eligibleCosts += eligible(residual, null, g);
+      for (const item of g.subitems) {
+        const accepted = eligible(item.value, item, g);
+        eligibleCosts += accepted;
+        if (!item.measurement) continue;
+        const end = phaseEnd(item);
+        if (!end) { warnings.push(`“${item.description}”: informe a conclusão para prever o reembolso.`); continue; }
+        const date = new Date(end + 'T12:00:00Z');
+        date.setUTCDate(date.getUTCDate() + (item.releaseDelayDays ?? delayDays));
+        const releaseDate = date.toISOString().slice(0, 10);
+        E.monthOffset(releaseDate, releaseDate);
+        measurements.push({ id: item.id, label: item.description, completionDate: end, releaseDate,
+          amount: E.cents(eligible(Math.min(item.value, item.measurementValue), item, g) * coveragePercent / 100) });
+      }
+    }
+    // Um excesso de detalhamento não aumenta a elegibilidade global do projeto.
+    eligibleCosts = E.cents(Math.min(eligibleCosts, b.total));
+    let remaining = E.cents(Math.min(principal, eligibleCosts * coveragePercent / 100));
+    measurements.sort((a, b) => a.releaseDate.localeCompare(b.releaseDate) || a.id.localeCompare(b.id));
+    for (const m of measurements) { m.amount = E.cents(Math.min(m.amount, remaining)); remaining = E.cents(remaining - m.amount); }
+    const disbursed = total(measurements);
+    if (!measurements.length) warnings.push('Sem medições com conclusão definida: nenhum reembolso bancário foi presumido. Cadastre as fases e confirme as condições com o banco.');
+    if (disbursed < principal) warnings.push('O crédito solicitado não foi totalmente programado: confira elegibilidade, cobertura e medições. Nenhuma liberação restante foi inventada.');
+    return { eligibleCosts, contracted: principal, coveragePercent, disbursed, ownCosts: E.cents(b.total - disbursed), measurements, warnings };
+  }
   function defaults() {
     return { version: 1, landMonth: 1, moveDate: '', legacyAssignments: [], groups: IDS.map(groupId => ({
       groupId, mode: ['construction', 'external', 'contingency'].includes(groupId) ? 'monthly' : 'single',
@@ -34,6 +90,7 @@
     return { startMonth: p.projectStartMonth, duration: p.constructionMonths + p.constructionDelay, moveMonth, automaticMoveMonth };
   }
   function windowFor(state, group) {
+    if (group.startDate) return { start: E.monthOffset(state.planning.startDate, group.startDate) + 1, months: group.mode === 'monthly' ? group.months : 1 };
     if (!group.followTimeline) return { start: group.startMonth, months: group.mode === 'monthly' ? group.months : 1 };
     const t = timeline(state);
     return { start: ['land', 'documents'].includes(group.groupId) ? state.budgetSchedule.landMonth : ['furniture', 'completion'].includes(group.groupId) ? t.moveMonth : t.startMonth,
@@ -44,6 +101,20 @@
   }
   function month(value, label) { numeric(value, label, 1200); if (!Number.isInteger(value) || value < 1) throw Error(`${label}: mês inválido.`); }
   function validate(state) {
+    normalize(state);
+    for (const g of state.groups) {
+      for (const item of [g, ...g.subitems]) {
+        if (!['none', 'potential', 'partial', ...(item === g ? [] : ['inherit'])].includes(item.financeability)) throw Error('Classificação de financiabilidade inválida.');
+        numeric(item.financePercent, 'Percentual financiável', 100);
+        if (item === g) continue;
+        for (const key of ['paymentDate', 'phaseStart', 'phaseEnd']) { if (typeof item[key] !== 'string') throw Error('Data do subitem inválida.'); if (item[key]) E.monthOffset(item[key], item[key]); }
+        month(item.durationMonths, 'Duração da fase');
+        if (typeof item.measurement !== 'boolean') throw Error('Medição inválida.');
+        numeric(item.measurementValue, 'Valor da medição');
+        if (item.releaseDelayDays !== null) { numeric(item.releaseDelayDays, 'Prazo do banco', 3650); if (!Number.isInteger(item.releaseDelayDays)) throw Error('Prazo do banco em dias inteiros.'); }
+        if (item.phaseStart && phaseEnd(item) < item.phaseStart) throw Error('Conclusão da fase anterior ao início.');
+      }
+    }
     const s = state.budgetSchedule;
     if (!s || typeof s !== 'object' || s.version !== 1) throw Error('Cronograma do orçamento inválido.');
     month(s.landMonth, 'Aquisição do terreno');
@@ -54,6 +125,8 @@
     s.groups.forEach((g, index) => {
       if (!g || g.groupId !== IDS[index] || !['single', 'monthly', 'manual'].includes(g.mode)) throw Error('Grupo do cronograma inválido.');
       if (typeof g.followTimeline !== 'boolean' || typeof g.source !== 'string' || g.source.length > 5000) throw Error('Regra/fonte do cronograma inválida.');
+      if (g.startDate !== undefined && typeof g.startDate !== 'string') throw Error('Data inicial do grupo inválida.');
+      if (g.startDate) E.monthOffset(g.startDate, g.startDate);
       month(g.startMonth, 'Início do grupo'); month(g.months, 'Duração do grupo');
       if (!Array.isArray(g.payments) || g.payments.length > 2400) throw Error('Pagamentos do grupo inválidos.');
       g.payments.forEach(p => {
@@ -112,26 +185,50 @@
       const external = legacy.filter(p => p.treatment === 'budget' && p.groupId === g.groupId);
       const unlinked = state.expenses.filter(e => e.cashTreatment !== 'financing' && e.groupId === g.groupId && !linkedExpense(e));
       const used = E.cents([...keep.map(p => ({ ...p, groupId: g.groupId, treatment: 'budget' })), ...external].reduce((s, p) => s + amounts(state, p).effective, 0) + unlinked.reduce((s, e) => s + E.cents(e.amount), 0));
-      const remaining = Math.max(0, Math.round((E.cents(b.values[g.groupId]) - used) * 100));
+      const items = state.groups.find(item => item.id === g.groupId).subitems;
+      const detailed = [];
+      let consumed = E.cents(unlinked.reduce((sum,e)=>sum+e.amount,0) + external.reduce((sum,p)=>sum+amounts(state,p).effective,0) + keep.filter(p=>!p.subitemId).reduce((sum,p)=>sum+amounts(state,{...p,groupId:g.groupId,treatment:'budget'}).effective,0));
+      for (const item of items.filter(i => i.paymentDate && i.status !== 'pago')) {
+        const id = `subitem:${g.groupId}:${item.id}`;
+        // Gastos e previsões confirmadas continuam na data e no valor originais.
+        if (keep.some(p => p.subitemId === item.id || p.id === id)) continue;
+        const offset = Math.min(item.value, consumed); consumed = E.cents(consumed - offset);
+        detailed.push({ id, subitemId: item.id, date: item.paymentDate,
+          month: E.monthOffset(state.planning.startDate, item.paymentDate) + 1,
+          amount: E.cents(item.value - offset), status: item.status === 'contratado' ? 'confirmed' : 'planned', fixed: item.status === 'contratado', origin: 'automatic', description: item.description });
+      }
+      if (detailed.some(p => p.month < 1)) throw Error('Pagamento previsto antes do início do fluxo: revise a data ou registre o gasto já realizado.');
+      const remaining = Math.max(0, Math.round((E.cents(b.values[g.groupId]) - used - total(detailed)) * 100));
       const w = windowFor(state, g);
       if (w.start + w.months - 1 > 1200) throw Error('Cronograma do grupo ultrapassa 1200 meses.');
+      if (w.start < 1 && remaining > 0) throw Error('Início do grupo anterior ao fluxo; revise sem alterar pagamentos realizados.');
       const blocked = new Set(keep.map(p => p.month));
       const months = Array.from({ length: w.months }, (_, i) => w.start + i).filter(m => !blocked.has(m));
       const base = months.length ? Math.floor(remaining / months.length) : 0;
       const rest = months.length ? remaining % months.length : 0;
       const generated = months.filter((_, i) => base + (i < rest ? 1 : 0) > 0).map((m, i) => ({
-        id: `budget:${g.groupId}:${m}`, month: m, amount: (base + (i < rest ? 1 : 0)) / 100,
+        id: `budget:${g.groupId}:${m}`, month: m, ...(g.startDate ? {date:E.addMonths(g.startDate,m-w.start)} : {}), amount: (base + (i < rest ? 1 : 0)) / 100,
         status: 'planned', fixed: false, origin: 'automatic'
       }));
       // IDs preservados de profissionais nunca são reutilizados por uma linha automática.
       const occupied = new Set([...keep, ...state.budgetSchedule.groups.filter(other => other !== g).flatMap(other => other.payments)].map(p => p.id));
       generated.forEach(p => { while (occupied.has(p.id)) p.id += ':auto'; occupied.add(p.id); });
-      g.payments = [...keep, ...generated].sort((a, b) => a.month - b.month || a.id.localeCompare(b.id));
+      g.payments = [...keep, ...detailed, ...generated].sort((a, b) => a.month - b.month || a.id.localeCompare(b.id));
     }
     return state;
   }
   function resolve(input) {
     const state = synchronize(input), warnings = [], issues = [], b = budget(state), payments = allPayments(state), expenses = state.expenses;
+    for (const g of state.groups) {
+      const included = E.cents(g.subitems.filter(i => i.includedInGroup).reduce((s, i) => s + i.value, 0));
+      const base = E.cents(b.values[g.id] - g.subitems.filter(i => !i.includedInGroup).reduce((s, i) => s + i.value, 0));
+      if (g.subitems.length) warnings.push(`${g.label}: ${E.cents(base - included).toFixed(2)} do valor-base ainda não detalhado (+) / excesso de subitens (−). O restante permanece explícito no cronograma do grupo.`);
+      if (g.subitems.some(i=>i.paymentDate) && state.budgetSchedule.groups.find(s=>s.groupId===g.id).mode==='manual') warnings.push(`${g.label}: cronograma profissional preservado; confira nele a distribuição dos subitens para não sobrepor pagamentos.`);
+      for (const i of g.subitems) {
+        if (!i.paymentDate) warnings.push(`“${i.description}”: data prevista de pagamento pendente; a data da cotação não foi usada. Confira o saldo programado no grupo.`);
+        if (['pago', 'contratado'].includes(i.status)) warnings.push(`“${i.description}”: preserve/confira o gasto ou pagamento protegido correspondente; o status do orçamento não cria outra saída.`);
+      }
+    }
     const review = payments.filter(p => p.treatment === 'review');
     review.forEach(p => warnings.push(`Pagamento manual da Etapa 2 “${p.description}” precisa ser classificado antes de calcular o caixa.`));
     const byId = new Map(payments.filter(p => ['budget', 'additional'].includes(p.treatment)).map(p => [p.id, p]));
@@ -165,9 +262,9 @@
       if (p.status === 'paid' && a.linked.some(e => e.status === 'A pagar')) warnings.push(`Pagamento ${p.id} marcado como pago contém compromisso a pagar; revise a situação.`);
       for (const e of a.linked) {
         linked.add(e);
-        add({ id: `expense:${e.id}`, groupId: p.groupId, month: expenseMonth(e, p.month), amount: E.cents(e.amount), label: e.description, paid: e.status === 'Pago' });
+        add({ id: `expense:${e.id}`, groupId: p.groupId, month: expenseMonth(e, p.month), date: e.date, amount: E.cents(e.amount), label: e.description, paid: e.status === 'Pago' });
       }
-      add({ id: p.id, groupId: p.groupId, month: p.month, amount: a.remainder, label: p.description || state.groups.find(g => g.id === p.groupId)?.label || 'Pagamento adicional', paid: p.status === 'paid' });
+      add({ id: p.id, groupId: p.groupId, month: p.month, date: p.date, amount: a.remainder, label: p.description || state.groups.find(g => g.id === p.groupId)?.label || 'Pagamento adicional', paid: p.status === 'paid' });
       if (p.treatment === 'budget') { const r = reports.get(p.groupId); r.programmed += a.effective; r.paid += a.paid; r.future += a.effective - a.paid; }
       else additional += a.effective;
     }
@@ -181,7 +278,7 @@
       if (e.paymentId && byId.has(e.paymentId)) warnings.push(`O grupo do gasto “${e.description}” difere do pagamento vinculado. Revise o vínculo.`);
       const r = reports.get(e.groupId), amount = E.cents(e.amount);
       r.programmed += amount; if (e.status === 'Pago') r.paid += amount; else r.future += amount;
-      add({ id: `expense:${e.id}`, groupId: e.groupId, month: expenseMonth(e), amount, label: e.description, paid: e.status === 'Pago' });
+      add({ id: `expense:${e.id}`, groupId: e.groupId, month: expenseMonth(e), date: e.date, amount, label: e.description, paid: e.status === 'Pago' });
     }
     for (const r of groupReports) {
       r.programmed = E.cents(r.programmed); r.paid = E.cents(r.paid); r.future = E.cents(r.future);
@@ -225,7 +322,7 @@
     }
     return target;
   }
-  const api = { defaults, validate, budget, timeline, windowFor, synchronize, resolve, allPayments, amounts, protectedPayment, preserveProtected };
+  const api = { normalize, phaseEnd, eligible, financing, defaults, validate, budget, timeline, windowFor, synchronize, resolve, allPayments, amounts, protectedPayment, preserveProtected };
   if (typeof module !== 'undefined') module.exports = api;
   root.BudgetScheduler = api;
 })(globalThis);

@@ -22,7 +22,7 @@
     if (path !== h.selectedPath) { views = {}; path = h.selectedPath; }
     const selector = $('housingPath'); selector.replaceChildren(...Object.entries(H.PATHS).map(([id, label]) => { const o = document.createElement('option'); o.value = id; o.textContent = label; return o; }));
     selector.value = h.selectedPath; $('housingSelectedTitle').textContent = H.PATHS[h.selectedPath]; selector.onchange = () => change(next => { next.housing.selectedPath = selector.value; });
-    const dateField = input('housing-start', 'Começar a simulação em', h.startDate.slice(0, 7), value => change(next => { next.housing.startDate = value + '-01'; }), 'month');
+    const dateField = input('housing-start', 'Começar a simulação em', h.startDate.slice(0, 7), value => change(next => { next.housing.startDate = value + '-01'; next.planning.startDate=next.housing.startDate; }), 'month');
     $('housingStart').replaceChildren(dateField);
     last = null; let error = '';
     try { last = H.calculate(state); } catch (e) { error = e.message; }
@@ -40,17 +40,27 @@
       const title = document.createElement('h3'); title.textContent = label; section.append(title);
       const intro = document.createElement('p'); intro.textContent = build ? `Orçamento da casa: ${money(cost)}. O aporte próprio planejado sai da família e entra na obra, limitado ao caixa pessoal disponível. O crédito fica apenas no caixa da obra. Você pode ajustar os dois valores.` : `Valor em Premissas: ${money(cost)}. Entrada e crédito são calculados automaticamente; você pode ajustá-los.`; section.append(intro);
       const grid = document.createElement('div'); grid.className = 'grid';
-      const entry = stage?.funding.entry ?? profile.entry ?? Math.min(cost, Math.max(0, state.cash));
-      const credit = stage?.funding.principal ?? profile.credit ?? Math.max(0, cost - entry);
-      grid.append(input(`home-${which}-entry`, build ? 'Aporte próprio planejado para a obra (R$)' : 'Entrada utilizada (R$)', entry, v => mutate(which, 'entry', v)),
+      const entry = (build ? stage?.funding.plannedTransfer : stage?.funding.entry) ?? profile.entry ?? Math.min(cost, Math.max(0, state.cash));
+      const credit = profile.credit ?? stage?.funding.requestedPrincipal ?? stage?.funding.principal ?? Math.max(0, cost - entry);
+      grid.append(input(`home-${which}-entry`, build ? 'Aporte próprio planejado para a obra (R$)' : 'Entrada utilizada (R$)', entry, v => mutate(which, build ? 'ownTransfer' : 'entry', v)),
         input(`home-${which}-credit`, 'Financiamento (R$; pode ajustar)', credit, v => mutate(which, 'credit', v)),
         input(`home-${which}-months`, build ? 'Prazo total do financiamento (meses, incluindo obra)' : 'Prazo do financiamento (meses)', profile.months, v => mutate(which, 'months', v)),
         input(`home-${which}-cet`, 'CET anual estimado (%)', profile.cet, v => mutate(which, 'cet', v)),
         input(`home-${which}-system`, 'Forma de pagamento', profile.system, v => mutate(which, 'system', v), 'text', [['SAC', 'SAC · parcelas que diminuem'], ['Price', 'Price · parcela financeira constante']]));
-      if (build) grid.append(input(`home-${which}-buildMonths`, 'Tempo até conclusão e regularização da obra (meses)', profile.buildMonths, v => mutate(which, 'buildMonths', v)));
+      if (build) grid.append(input(`home-${which}-buildMonths`, 'Tempo até conclusão e regularização da obra (meses)', profile.buildMonths, v => mutate(which, 'buildMonths', v)),
+        input(`home-${which}-coveragePercent`, 'Cobertura estimada dos custos elegíveis (%)', profile.coveragePercent, v => mutate(which, 'coveragePercent', v)),
+        input(`home-${which}-releaseDelayDays`, 'Prazo padrão após medição até receber (dias)', profile.releaseDelayDays, v => mutate(which, 'releaseDelayDays', v)));
       section.append(grid);
+      if (build && stage) {
+        const f=stage.funding.finance, report=document.createElement('div');report.className='notice';report.id='projectFundingReport';
+        report.innerHTML=`<p><strong>Custo total do projeto:</strong> ${money(stage.cost)} · <strong>Potencialmente elegível:</strong> ${money(f.eligibleCosts)} · <strong>Crédito solicitado:</strong> ${money(f.contracted)} · <strong>Financiamento efetivamente programado:</strong> ${money(f.disbursed)}.</p>
+          <p><strong>Recursos próprios para custos não cobertos:</strong> ${money(f.ownCosts)} · <strong>Capital de giro adicional para antecipações:</strong> ${money(f.workingCapital)}. Capital de giro é temporário e separado do custo definitivo. O aporte planejado não se torna ilimitado para cobrir essa necessidade.</p>
+          <p>Custos elegíveis ainda dependem de aprovação; o percentual de cobertura não garante reembolso integral. Datas e percentuais são hipóteses até confirmação do banco. Despesas e cronogramas pagos antes do início não são debitados novamente.</p>
+          <div class="scroll"><table><thead><tr><th>Fase / item</th><th>Conclusão estimada</th><th>Recebimento estimado</th><th>Reembolso limitado</th></tr></thead><tbody>${f.measurements.map(m=>`<tr><td>${esc(m.label)}</td><td>${esc(m.completionDate)}</td><td>${esc(m.releaseDate)}</td><td>${money(m.amount)}</td></tr>`).join('')}</tbody></table></div>`;
+        explainColumns(report); section.append(report);
+      }
       const reset = document.createElement('button'); reset.className = 'secondary'; reset.textContent = 'Recalcular entrada e crédito automaticamente';
-      reset.onclick = () => change(next => { next.housing.paths[path][which].entry = null; next.housing.paths[path][which].credit = null; }); section.append(reset);
+      reset.onclick = () => change(next => { next.housing.paths[path][which].entry = null; next.housing.paths[path][which].credit = null; next.housing.paths[path][which].ownTransfer=null; }); section.append(reset);
       const extra = document.createElement('details'); extra.id = `extra-${which}`;
       extra.innerHTML = '<summary>Pagar um valor extra (opcional)</summary>';
       const extraGrid = document.createElement('div'); extraGrid.className = 'grid';
@@ -113,6 +123,42 @@
       a.href = url; a.download = `vecto-${path}-cronograma-completo.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
   }
+  const descriptions = {
+    'Mês/ano': 'Competência mensal da simulação. Cada linha reúne entradas e saídas desse mês. O resumo anual soma movimentos e conserva os saldos finais.',
+    'Momento': 'Etapa de moradia e financiamento em andamento, conforme as datas escolhidas e o saldo devedor.',
+    'Aluguel (já considerado)': 'Aluguel previsto enquanto a família ainda aluga. Se já estiver nas despesas familiares, não é subtraído novamente. Ao terminar, essa economia passa à poupança, conforme Premissas.',
+    'Encargos / prestações da família': 'Soma dos encargos sobre crédito já liberado, prestações, amortizações extraordinárias e quitações deste mês, de todas as dívidas. Sai do caixa pessoal uma única vez.',
+    'Compras / custos de apartamentos': 'Pagamentos de compra e despesas de compra ou venda dos apartamentos neste mês. São saídas pontuais de patrimônio, sem pagamentos aos fornecedores da obra.',
+    'Aporte extraordinário para obra': 'Transferência planejada do patrimônio pessoal para o caixa da obra, limitada ao dinheiro pessoal disponível após obrigações. Sai de um caixa e entra no outro uma vez. Não reduz a medida de poupança recorrente.',
+    'Saldo pessoal disponível': 'Saldo pessoal anterior + poupança-base ajustada ao aluguel + crédito e vendas de apartamentos − compras e custos dos apartamentos − encargos e prestações − aportes efetivamente transferidos à obra. Não inclui reembolsos destinados à obra nem o valor dos imóveis.',
+    'Dívida desta etapa (não é caixa)': 'Saldo emprestado ainda não quitado nesta etapa. Aumenta com liberações e correções contratuais e diminui com amortizações. Não é dinheiro disponível.',
+    'Menor saldo pessoal no ano': 'Menor saldo mensal do patrimônio pessoal no ano, incluindo o saldo de abertura. Mostra insuficiências que um saldo final positivo poderia esconder.',
+    'Saldo inicial da obra': 'Saldo exclusivo da obra ao encerrar o mês anterior. Inclui reembolsos ainda não utilizados e preserva déficits anteriores.',
+    'Aportes da família': 'Recursos próprios efetivamente transferidos do caixa pessoal para a obra no mês. O mesmo valor sai da família uma única vez; não é renda nova.',
+    'Liberação / reembolso bancário': 'Soma dos reembolsos previstos após conclusão das medições e prazo de aprovação. Limitada pela elegibilidade do item, cobertura e crédito solicitado. Entra somente no caixa da obra.',
+    'Pagamentos da obra': 'Soma dos fornecedores e despesas do projeto nas datas do orçamento. Gastos vinculados substituem a previsão correspondente; subitens incluídos não aumentam novamente o custo.',
+    'Saldo exclusivo da obra': 'Saldo anterior + aportes próprios recebidos + reembolsos bancários − pagamentos aos fornecedores. Sobras financiam próximas etapas. Saldo negativo indica dinheiro faltante; não gera aporte automático.',
+    'Dívida da obra (não é caixa)': 'Total de crédito já liberado ainda não amortizado. É uma obrigação futura, separada do dinheiro da obra e do patrimônio pessoal.',
+    'Menor saldo no ano': 'Menor saldo mensal da obra no ano, incluindo a abertura. Mostra a maior insuficiência temporária, mesmo se o ano termina positivo.',
+    'Fase / item': 'Nome livre da fase ou item marcado para medição. Uma fase não é automaticamente aceita pelo banco.',
+    'Conclusão estimada': 'Data informada de conclusão ou calculada a partir do início e duração. A conclusão não implica liberação imediata.',
+    'Recebimento estimado': 'Conclusão da fase + prazo de aprovação e liberação em dias. Uma hipótese a confirmar no cronograma do banco.',
+    'Reembolso limitado': 'Menor valor entre custo do item e medição, multiplicado pelo percentual elegível e pela cobertura. O conjunto nunca supera o crédito solicitado. Não é renda da família.'
+  };
+  function explainColumns(container) {
+    for(const th of container.querySelectorAll('th')) {
+      const label=th.textContent;
+      const description=label.startsWith('Poupança pessoal possível') ? 'Valor que a família consegue guardar após despesas habituais, aluguel e todos os encargos ou prestações do período. Parte da poupança informada em Premissas, ajusta mudanças na renda e despesas e subtrai as obrigações uma única vez. Aportes extraordinários e compras de patrimônio aparecem separadamente. Resultado negativo é insuficiência mensal.' : descriptions[label];
+      if(!description) continue;
+      th.innerHTML=`<details class="column-help"><summary title="${esc(description)}">${esc(label)} <span aria-hidden="true">ⓘ</span></summary><p>${esc(description)}</p></details>`;
+      const detail=th.firstElementChild, summary=detail.querySelector('summary');let pinned=false;
+      summary.onclick=event=>{event.preventDefault();pinned=!pinned;detail.open=pinned;};
+      detail.onmouseenter=()=>{detail.open=true;};
+      detail.onmouseleave=()=>{if(!pinned && !detail.contains(document.activeElement)) detail.open=false;};
+      summary.onfocus=()=>{detail.open=true;};
+      summary.onblur=()=>{if(!pinned) detail.open=false;};
+    }
+  }
   function renderTimeline(stage) {
     const choice = views[stage.id] ||= { page: 0, mode: 'monthly' }, rows = stage.rows;
     const box = document.createElement('div'); box.className = 'housing-timeline'; box.dataset.stage = stage.id;
@@ -148,7 +194,8 @@
     }
     const caption = document.createElement('p'); caption.className = 'small'; caption.textContent = choice.mode === 'annual' ? 'Resumo por ano. Todos os meses continuam calculados e estão no CSV.' : `${choice.mode === 'all' ? 'Todos os' : 'Até 12 dos'} ${rows.length} meses desta etapa. Todas as parcelas estão calculadas.`; box.append(caption);
     const table = document.createElement('div'); table.className = 'scroll';
-    table.innerHTML = `<table><thead><tr><th>Mês/ano</th><th>Momento</th><th>Capacidade de poupança</th><th>Aluguel (já considerado)</th><th>Encargos / prestações da família</th><th>Compras / custos de apartamentos</th>${last.hasConstruction ? '<th>Transferência para obra</th>' : ''}<th>Poupança pessoal possível ${choice.mode === 'annual' ? 'no ano' : 'no mês'}</th><th>Saldo pessoal disponível</th><th>Dívida desta etapa (não é caixa)</th>${choice.mode === 'annual' ? '<th>Menor saldo pessoal no ano</th>' : ''}</tr></thead><tbody>${visible.map(r => `<tr class="${(r.minimumCash ?? r.closingCash) < 0 ? 'negative' : ''}"><td>${r.date.length === 4 ? r.date : esc(when(r.date))}</td><td>${esc(r.phase)}</td><td>${money(r.capacity)}</td><td>${money(r.rental)}</td><td>${money(r.financing)}</td><td>${money(r.projectPayments)}</td>${last.hasConstruction ? `<td>${money(r.transferToProject)}</td>` : ''}<td>${money(r.savingPossible)}</td><td>${money(r.closingCash)}</td><td>${money(r.balance)}</td>${choice.mode === 'annual' ? `<td>${money(r.minimumCash)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+    table.innerHTML = `<table><thead><tr><th>Mês/ano</th><th>Momento</th><th>Aluguel (já considerado)</th><th>Encargos / prestações da família</th><th>Compras / custos de apartamentos</th>${last.hasConstruction ? '<th>Aporte extraordinário para obra</th>' : ''}<th>Poupança pessoal possível ${choice.mode === 'annual' ? 'no ano' : 'no mês'}</th><th>Saldo pessoal disponível</th><th>Dívida desta etapa (não é caixa)</th>${choice.mode === 'annual' ? '<th>Menor saldo pessoal no ano</th>' : ''}</tr></thead><tbody>${visible.map(r => `<tr class="${(r.minimumCash ?? r.closingCash) < 0 ? 'negative' : ''}"><td>${r.date.length === 4 ? r.date : esc(when(r.date))}</td><td>${esc(r.phase)}</td><td>${money(r.rental)}</td><td>${money(r.financing)}</td><td>${money(r.projectPayments)}</td>${last.hasConstruction ? `<td>${money(r.transferToProject)}</td>` : ''}<td>${money(r.savingPossible)}</td><td>${money(r.closingCash)}</td><td>${money(r.balance)}</td>${choice.mode === 'annual' ? `<td>${money(r.minimumCash)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+    explainColumns(table);
     box.append(table); $('housingTimelines').append(box);
   }
   function renderConstruction() {
@@ -179,6 +226,7 @@
     }
     const table = document.createElement('div'); table.className = 'scroll';
     table.innerHTML = `<table><thead><tr><th>Mês/ano</th><th>Saldo inicial da obra</th><th>Aportes da família</th><th>Liberação / reembolso bancário</th><th>Pagamentos da obra</th><th>Saldo exclusivo da obra</th><th>Dívida da obra (não é caixa)</th>${choice.mode === 'annual' ? '<th>Menor saldo no ano</th>' : ''}</tr></thead><tbody>${visible.map(r => `<tr class="${(r.minimumCash ?? r.closingCash) < 0 ? 'negative' : ''}"><td>${r.date.length === 4 ? r.date : esc(when(r.date))}</td><td>${money(r.openingCash)}</td><td>${money(r.ownTransfers)}</td><td>${money(r.bankFunding)}</td><td>${money(r.supplierPayments)}</td><td>${money(r.closingCash)}</td><td>${money(r.debtBalance)}</td>${choice.mode === 'annual' ? `<td>${money(r.minimumCash)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+    explainColumns(table);
     parent.append(table);
   }
   root.HousingView = { render };

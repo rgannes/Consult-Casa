@@ -35,6 +35,9 @@ def run():
                 s.housing=Housing.defaults(s);s.housing.startDate='2027-01-01';s.housing.selectedPath='buyLarger';
                 for(const p of Object.values(s.housing.paths)){if(p.first)p.first.entry=60000;p.second.entry=20000;p.second.buildMonths=6;
                 if(p.buyCosts!==undefined)p.buyCosts=5000;if(p.saleCosts!==undefined)p.saleCosts=5000;if(p.secondBuyCosts!==undefined)p.secondBuyCosts=10000;}
+                s.groups[6].subitems=Array.from({length:6},(_,i)=>({id:`phase-${i}`,description:`Medição ${i+1}`,value:20000,
+                  source:'Proposta fictícia',referenceDate:'',status:'estimado',notes:'',includedInGroup:true,
+                  measurement:true,measurementValue:20000,phaseEnd:FinancialEngine.addMonths('2027-01-01',i),releaseDelayDays:0}));
                 CasaModel.persist(localStorage,CasaModel.validate(s)); }""")
             page.reload()
             page.get_by_role('button', name='3 · Cenários').click()
