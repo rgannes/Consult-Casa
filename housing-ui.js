@@ -157,6 +157,7 @@
     const caption = document.createElement('p'); caption.className = 'small'; caption.textContent = choice.mode === 'annual' ? 'Resumo por ano. Todos os meses continuam calculados e estão no CSV.' : `${choice.mode === 'all' ? 'Todos os' : 'Até 12 dos'} ${rows.length} meses desta etapa. Todas as parcelas estão calculadas.`; box.append(caption);
     const table = document.createElement('div'); table.className = 'scroll';
     table.innerHTML = `<table><thead><tr><th>Mês/ano</th><th>Momento</th><th>Aluguel (já considerado)</th><th>Encargos / prestações da família</th><th>Compras / custos de apartamentos</th>${last.hasConstruction ? '<th>Transferência para obra</th>' : ''}<th>Poupança pessoal possível ${choice.mode === 'annual' ? 'no ano' : 'no mês'}</th><th>Saldo pessoal disponível</th><th>Dívida desta etapa (não é caixa)</th>${choice.mode === 'annual' ? '<th>Menor saldo pessoal no ano</th>' : ''}</tr></thead><tbody>${visible.map(r => `<tr class="${(r.minimumCash ?? r.closingCash) < 0 ? 'negative' : ''}"><td>${r.date.length === 4 ? r.date : esc(when(r.date))}</td><td>${esc(r.phase)}</td><td>${money(r.rental)}</td><td>${money(r.financing)}</td><td>${money(r.projectPayments)}</td>${last.hasConstruction ? `<td>${money(r.transferToProject)}</td>` : ''}<td>${money(r.savingPossible)}</td><td>${money(r.closingCash)}</td><td>${money(r.balance)}</td>${choice.mode === 'annual' ? `<td>${money(r.minimumCash)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+    root.ScenarioColumnHelp.enhance(table, choice.mode === 'annual');
     box.append(table); $('housingTimelines').append(box);
   }
   function renderConstruction() {
@@ -187,6 +188,7 @@
     }
     const table = document.createElement('div'); table.className = 'scroll';
     table.innerHTML = `<table><thead><tr><th>Mês/ano</th><th>Saldo inicial da obra</th><th>Aportes da família</th><th>Liberação / reembolso bancário</th><th>Pagamentos da obra</th><th>Saldo exclusivo da obra</th><th>Dívida da obra (não é caixa)</th>${choice.mode === 'annual' ? '<th>Menor saldo no ano</th>' : ''}</tr></thead><tbody>${visible.map(r => `<tr class="${(r.minimumCash ?? r.closingCash) < 0 ? 'negative' : ''}"><td>${r.date.length === 4 ? r.date : esc(when(r.date))}</td><td>${money(r.openingCash)}</td><td>${money(r.ownTransfers)}</td><td>${money(r.bankFunding)}</td><td>${money(r.supplierPayments)}</td><td>${money(r.closingCash)}</td><td>${money(r.debtBalance)}</td>${choice.mode === 'annual' ? `<td>${money(r.minimumCash)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+    root.ScenarioColumnHelp.enhance(table, choice.mode === 'annual');
     parent.append(table);
   }
   root.HousingView = { render };
