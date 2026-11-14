@@ -1,0 +1,45 @@
+/* Paleta oficial fornecida pela VECTO; cores de alerta preservadas. */
+:root{--vecto-navy:#182a3f;--vecto-gold:#a77c35;--vecto-white:#f8faf8;--vecto-highlight:#d49b3a;--vecto-line:color-mix(in srgb,var(--vecto-navy) 18%,white);color:var(--vecto-navy);background:var(--vecto-white)}
+body{min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--vecto-navy);color:var(--vecto-white);border-bottom:3px solid var(--vecto-gold)}
+header small{letter-spacing:.12em;font-size:12px}header h1{font-weight:650;letter-spacing:-.025em}header p{max-width:680px;margin-bottom:0}
+main{box-sizing:border-box;width:100%;margin:0 auto;flex:1}
+section{border:1px solid var(--vecto-line);background:white}
+h2,h3,h4{color:var(--vecto-navy)}
+nav{gap:10px}
+button,.link{background:var(--vecto-navy);color:var(--vecto-white);border:1px solid var(--vecto-navy)}
+button:not(.danger):not(.secondary):not(.scenario-column-help):not(:disabled):hover,.link:hover{background:var(--vecto-navy);box-shadow:inset 0 -3px var(--vecto-highlight)}
+.controls>button{margin:4px 4px 4px 0}
+button:disabled{cursor:default;opacity:.55}
+.secondary{background:var(--vecto-white);color:var(--vecto-navy);border-color:var(--vecto-gold)}
+button.secondary:not(:disabled):hover{background:white;box-shadow:inset 0 -3px var(--vecto-highlight)}
+button.danger{background:#9a4436;border-color:#9a4436;color:white}
+a{color:var(--vecto-navy);text-decoration-color:var(--vecto-gold);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}
+input,select,textarea{border-color:var(--vecto-line);background:white;color:var(--vecto-navy);max-width:100%;box-sizing:border-box}
+input[type=checkbox],input[type=radio]{accent-color:var(--vecto-navy)}
+input:read-only{background:var(--vecto-white)}
+.grid>*{min-width:0}
+button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--vecto-navy);outline-offset:3px;box-shadow:0 0 0 3px var(--vecto-highlight)}
+.card{background:white;border:1px solid var(--vecto-line);border-top:3px solid var(--vecto-gold)}
+.number{color:var(--vecto-navy);font-variant-numeric:tabular-nums}
+.notice{background:color-mix(in srgb,var(--vecto-highlight) 14%,white);color:var(--vecto-navy);border-left:3px solid var(--vecto-gold)}
+.small{color:var(--vecto-navy)}
+details,th,td,.subitem{border-color:var(--vecto-line)}
+.scroll th{background:var(--vecto-white);color:var(--vecto-navy);border-bottom:2px solid var(--vecto-gold)}
+.selected-path{outline-color:var(--vecto-gold)}
+.eyebrow{color:var(--vecto-navy);border-left:3px solid var(--vecto-gold);padding-left:10px}
+.housing-step{background:var(--vecto-white);border:1px solid var(--vecto-line)}
+.housing-timing{border-left-color:var(--vecto-gold)}
+.negative{background:#fff0ec;color:#8c2e20}
+.scenario-column-tooltip{color:var(--vecto-navy);border-color:var(--vecto-gold)}
+footer{box-sizing:border-box;width:100%;max-width:1180px;margin:12px auto 0;padding:18px 24px;border-top:1px solid var(--vecto-line);color:var(--vecto-navy);font-size:12px;line-height:1.6;text-align:center}
+@media(max-width:600px){header{padding:24px 20px}header h1{font-size:28px}main{padding:16px}section{padding:18px}.housing-step{padding:16px}.grid,#housingForms .grid{grid-template-columns:minmax(0,1fr)}nav{gap:8px}nav button{padding:10px;font-size:14px}footer{padding:16px;max-width:calc(100% - 32px)}}
+@media print{body{display:block;background:white}header{background:white;color:var(--vecto-navy)}main{width:auto}footer{color:var(--vecto-navy)}button.scenario-column-help{background:transparent;color:inherit;border:0;box-shadow:none}}
+
+/* O PNG original é quadrado, com margens de fundo amplas. A janela mostra
+   toda a marca central sem esticar a imagem ou alterar o arquivo original. */
+.vecto-brand{display:flex;align-items:center;gap:20px;margin-bottom:12px}
+.vecto-logo{display:block;width:240px;height:72px;object-fit:cover;object-position:center;flex-shrink:0}
+.vecto-brand small{max-width:290px;line-height:1.6}
+@media(max-width:600px){.vecto-brand{gap:14px}.vecto-logo{width:190px;height:64px}.vecto-brand small{font-size:10px;letter-spacing:.08em;max-width:110px}}
+@media print{.vecto-brand{background:var(--vecto-navy);padding:8px;max-width:fit-content;print-color-adjust:exact}}
