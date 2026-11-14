@@ -38,19 +38,27 @@
       const profile = p[which], stage = last?.stages.find(s => s.id === which);
       const section = document.createElement('div'); section.className = 'housing-step';
       const title = document.createElement('h3'); title.textContent = label; section.append(title);
-      const intro = document.createElement('p'); intro.textContent = build ? `Orçamento da casa: ${money(cost)}. O aporte próprio planejado sai da família e entra na obra, limitado ao caixa pessoal disponível. O crédito fica apenas no caixa da obra. Você pode ajustar os dois valores.` : `Valor em Premissas: ${money(cost)}. Entrada e crédito são calculados automaticamente; você pode ajustá-los.`; section.append(intro);
+      const buildFunding = build ? (() => { try { return H.constructionFunding(state, profile); } catch { return null; } })() : null;
+      const intro = document.createElement('p'); intro.textContent = build ? `Orçamento da casa: ${money(cost)}. Financiamento = total dos grupos marcados como Financiado − entrada informada. Grupos com Recursos Próprios não entram nessa conta. O aporte ao caixa da obra inclui também essas despesas e continua limitado ao caixa pessoal disponível.` : `Valor em Premissas: ${money(cost)}. Entrada e crédito são calculados automaticamente; você pode ajustá-los.`; section.append(intro);
       const grid = document.createElement('div'); grid.className = 'grid';
-      const entry = stage?.funding.entry ?? profile.entry ?? Math.min(cost, Math.max(0, state.cash));
-      const credit = stage?.funding.principal ?? profile.credit ?? Math.max(0, cost - entry);
-      grid.append(input(`home-${which}-entry`, build ? 'Aporte próprio planejado para a obra (R$)' : 'Entrada utilizada (R$)', entry, v => mutate(which, 'entry', v)),
-        input(`home-${which}-credit`, 'Financiamento (R$; pode ajustar)', credit, v => mutate(which, 'credit', v)),
+      const entry = build ? (profile.entry ?? 0) : (stage?.funding.entry ?? profile.entry ?? Math.min(cost, Math.max(0, state.cash)));
+      const credit = build ? (buildFunding?.principal ?? '') : (stage?.funding.principal ?? profile.credit ?? Math.max(0, cost - entry));
+      grid.append(input(`home-${which}-entry`, build ? 'Entrada do financiamento (R$)' : 'Entrada utilizada (R$)', entry, v => mutate(which, 'entry', v)),
+        input(`home-${which}-credit`, build ? 'Financiamento (R$; calculado)' : 'Financiamento (R$; pode ajustar)', credit, v => mutate(which, 'credit', v)),
         input(`home-${which}-months`, build ? 'Prazo total do financiamento (meses, incluindo obra)' : 'Prazo do financiamento (meses)', profile.months, v => mutate(which, 'months', v)),
         input(`home-${which}-cet`, 'CET anual estimado (%)', profile.cet, v => mutate(which, 'cet', v)),
         input(`home-${which}-system`, 'Forma de pagamento', profile.system, v => mutate(which, 'system', v), 'text', [['SAC', 'SAC · parcelas que diminuem'], ['Price', 'Price · parcela financeira constante']]));
+      if (build) {
+        grid.querySelector(`#home-${which}-credit`).readOnly = true;
+        const entryInput = grid.querySelector(`#home-${which}-entry`);
+        entryInput.max = buildFunding?.financedGroups ?? state.groups.filter(g=>g.fundingSource==='financed').reduce((sum,g)=>sum+root.BudgetScheduler.budget(state).values[g.id],0);
+      }
       if (build) grid.append(input(`home-${which}-buildMonths`, 'Tempo até conclusão e regularização da obra (meses)', profile.buildMonths, v => mutate(which, 'buildMonths', v)));
       section.append(grid);
-      const reset = document.createElement('button'); reset.className = 'secondary'; reset.textContent = 'Recalcular entrada e crédito automaticamente';
-      reset.onclick = () => change(next => { next.housing.paths[path][which].entry = null; next.housing.paths[path][which].credit = null; }); section.append(reset);
+      if (!build) {
+        const reset = document.createElement('button'); reset.className = 'secondary'; reset.textContent = 'Recalcular entrada e crédito automaticamente';
+        reset.onclick = () => change(next => { next.housing.paths[path][which].entry = null; next.housing.paths[path][which].credit = null; }); section.append(reset);
+      }
       const extra = document.createElement('details'); extra.id = `extra-${which}`;
       extra.innerHTML = '<summary>Pagar um valor extra (opcional)</summary>';
       const extraGrid = document.createElement('div'); extraGrid.className = 'grid';

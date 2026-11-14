@@ -36,6 +36,10 @@
   }
   function normalize(state) {
     if (!state.housing) state.housing = defaults(state);
+    // Dados antigos tratavam o orçamento inteiro como base do crédito.
+    if (Array.isArray(state.groups)) state.groups.forEach(g => {
+      if (g && g.fundingSource === undefined) g.fundingSource = 'financed';
+    });
     if (state.bankPercent === undefined) state.bankPercent = state.planning?.bankPercent ?? 30;
     if (state.comfortablePayment === undefined) state.comfortablePayment = state.planning?.comfortablePayment ?? 0;
     if (state.rent === undefined) state.rent = state.planning?.rent ?? 0;
@@ -89,6 +93,23 @@
     const principal = credit === null ? E.cents(Math.max(0, cost - chosenEntry)) : E.cents(credit);
     if (principal > E.cents(cost)) throw Error('O financiamento não pode superar o custo desta aquisição/etapa.');
     return { entry: E.cents(cost - principal), principal, requestedEntry: chosenEntry, adjusted: credit !== null };
+  }
+  function constructionFunding(state, profile, scheduledCost = B.budget(state).total) {
+    const b = B.budget(state);
+    let financedGroups = 0;
+    for (const g of state.groups) {
+      if (!['financed', 'own'].includes(g.fundingSource)) throw Error('Origem dos recursos do grupo inválida.');
+      if (g.fundingSource === 'financed') financedGroups += b.values[g.id];
+    }
+    financedGroups = E.cents(financedGroups);
+    const downPayment = profile.entry === null ? 0 : profile.entry;
+    number(downPayment, 'Entrada do financiamento');
+    if (downPayment > financedGroups) throw Error('A entrada do financiamento não pode superar o total dos grupos classificados como Financiado.');
+    const principal = E.cents(financedGroups - E.cents(downPayment));
+    // A transferência continua cobrindo as saídas da obra não cobertas pelo banco.
+    // Ela inclui recursos próprios de outros grupos e não é a entrada do contrato.
+    return { principal, downPayment: E.cents(downPayment), financedGroups,
+      entry: E.cents(Math.max(0, scheduledCost - principal)), requestedEntry: E.cents(downPayment), adjusted: false };
   }
   function split(amount, months) {
     const c = Math.round(amount * 100), q = Math.floor(c / months), rest = c % months;
@@ -209,7 +230,7 @@
       warnings.push(...schedule.warnings);
       const beforeBuild = schedule.events.filter(e => e.month < p.stage2Month);
       const financingCost = sum(schedule.events.filter(e => e.month >= p.stage2Month), 'amount');
-      const funding = amounts(financingCost, p.second.entry, p.second.credit, available(p.stage2Month, beforeBuild));
+      const funding = constructionFunding(state, p.second, financingCost);
       const result = loan(p.second, funding.principal, h.startDate, p.stage2Month, true);
       loans.push({ id: 'second', result });
       events.push(...schedule.events.map(e => ({ ...e, stage: 'second', account: 'construction' })));
@@ -323,7 +344,7 @@
     ['openingConstructionCash', 'Saldo inicial da obra'], ['transferToProject', 'Aporte próprio recebido pela obra'],
     ['constructionFunding', 'Liberação/reembolso recebido pela obra'], ['constructionPayments', 'Fornecedores/despesas da obra'],
     ['constructionCash', 'Saldo exclusivo da obra'], ['constructionDebtBalance', 'Saldo devedor da obra (não é caixa)'], ['debtBalance', 'Dívida total (não é caixa)']];
-  const api = { PATHS, defaults, normalize, validate, capacity, amounts, calculate, columns };
+  const api = { PATHS, defaults, normalize, validate, capacity, amounts, constructionFunding, calculate, columns };
   if (typeof module !== 'undefined') module.exports = api;
   root.Housing = api;
 })(globalThis);

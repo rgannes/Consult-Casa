@@ -55,7 +55,7 @@
   }
   function makeGroups(values) {
     return GROUPS.map(([id, label], i) => ({
-      id, label, value: values[i], description: label,
+      id, label, value: values[i], description: label, fundingSource: 'financed',
       source: 'Hipótese de planejamento; não é cotação técnica verificada.',
       referenceDate: '', status: 'estimado', notes: '', subitems: []
     }));
@@ -109,6 +109,7 @@
       object(group, 'Grupo');
       if (group.id !== GROUPS[i][0] || group.label !== GROUPS[i][1]) fail('Identificação dos grupos inválida.');
       number(group.value, 'Valor do grupo'); metadata(group);
+      choice(group.fundingSource, ['financed', 'own'], 'Origem dos recursos');
       if (!Array.isArray(group.subitems) || group.subitems.length > 500) fail('Subitens inválidos.');
       const ids = new Set();
       group.subitems.forEach(item => {
@@ -188,7 +189,7 @@
     const result = clone(state);
     if (name === 'personalizado') { result.scenarioName = name; return validate(result); }
     if (!own(PRESETS, name)) fail('Cenário inválido.');
-    result.groups = makeGroups(PRESETS[name]);
+    result.groups = makeGroups(PRESETS[name]).map(g => ({ ...g, fundingSource: state.groups.find(old => old.id === g.id)?.fundingSource ?? 'financed' }));
     result.area = 150; result.m2 = PRESETS[name][6] / 150;
     result.constructionMode = 'area'; result.contingencyMode = 'manual';
     result.scenarioName = name;
