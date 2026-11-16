@@ -92,9 +92,9 @@ pago = gastos pagos vinculados + residual declarado pago, quando aplicável
 futuro = programado/realizado − pago
 ```
 
-O fluxo usa cada registro vinculado uma vez, na sua data, e apenas o residual no mês previsto. Se os gastos ultrapassam a previsão, a diferença real entra uma vez e gera aviso; o saldo automático ainda livre do grupo é reduzido. A previsão original protegida permanece guardada para comparação.
+O fluxo usa cada registro vinculado uma vez, na sua data, e apenas o residual no mês previsto. Se os gastos ultrapassam a previsão, a diferença real entra uma vez e gera aviso; nenhuma outra previsão é reduzida para compensar o excesso. A previsão original protegida permanece guardada para comparação.
 
-Gastos sem vínculo consomem o saldo automático do seu grupo. Não se soma o grupo completo mais o gasto: o automático gera apenas o saldo restante. Para um grupo manual/fixado, divergências permanecem visíveis, pois não se pode presumir que um contrato possa ser reduzido. Vincular corretamente é a forma mais precisa de preservar a distribuição por marcos.
+Gastos sem vínculo válido ficam não conciliados: são somados ao fluxo sem reduzir nenhuma previsão, automática ou manual. Vincule-os à previsão correspondente para evitar duplicidade. O orçamento original permanece inalterado. A aba Gastos Reais distingue realizado/contratado, previsões ainda pendentes, excesso vinculado, gastos não conciliados e desembolso projetado. O desvio acima do orçamento inclui o que ultrapassa o total original; não significa crédito adicional nem dinheiro disponível.
 
 Gastos com tratamento **Já incluído no contrato de financiamento** permanecem registrados, mas não criam outra saída nem consomem o orçamento de fornecedores. Esse tratamento é uma declaração do usuário, não conciliação com extrato bancário. Não inclua juros/amortizações dentro de propostas globais de fornecedores e também no contrato sem revisar as inclusões; duplicidades semânticas entre propostas não são identificadas automaticamente.
 

@@ -210,7 +210,7 @@ function renderLegacyFinancing(b, r) {
 function paymentOptions(groupId, selected = '') {
   const payments = BudgetScheduler.allPayments(state).filter(p =>
     (p.treatment === 'additional' || (p.treatment === 'budget' && p.groupId === groupId)));
-  return '<option value="">Sem vínculo — consome o saldo do grupo</option>' +
+  return '<option value="">Sem vínculo — não conciliado; preserva previsões</option>' +
     (selected && !payments.some(p => p.id === selected) ? `<option value="${esc(selected)}" selected>Vínculo ausente: ${esc(selected)} — revisar</option>` : '') +
     payments.map(p => `<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>Mês ${p.month} · ${money(p.amount)} · ${esc(p.id)}</option>`).join('');
 }
@@ -229,10 +229,18 @@ function renderExpenses(b) {
   renderExpenseLink();
   const paid = state.expenses.filter(e => e.status === 'Pago').reduce((sum, e) => sum + e.amount, 0);
   const pending = state.expenses.filter(e => e.status === 'A pagar').reduce((sum, e) => sum + e.amount, 0);
-  $('actualSummary').innerHTML = card('Pago', paid, 'Saídas registradas.') + card('Contratado a pagar', pending, 'Compromissos registrados.') +
-    card('Saldo do orçamento total', b.total - paid - pending, 'Inclui os 11 grupos. Não representa caixa nem custo estimado para concluir.');
+  const reconciliation = BudgetScheduler.resolve(state);
+  const totals = reconciliation.totals;
+  $('actualSummary').innerHTML = card('Orçamento original', b.total, 'Valores definidos em Orçamento; não são alterados pelos gastos.') +
+    card('Realizado e contratado do projeto', totals.committed, 'Gastos registrados e pagamentos confirmados/pagos no cronograma, sem duplicar vínculos. Exclui registros já no contrato de financiamento.') +
+    card('Previsto ainda pendente', totals.pendingForecast, 'Previsões ainda não cobertas por registros ou compromissos confirmados.') +
+    card('Excesso sobre previsões vinculadas', totals.excess, 'Soma dos valores que ultrapassam seus pagamentos previstos. Não reduz outras previsões.') +
+    card('Desembolso total projetado', totals.projected, `Desvio acima do orçamento: ${money(totals.overBudget)}. Não representa saldo de caixa.`) +
+    card('Gastos não conciliados', totals.unlinked, 'Sem vínculo válido: somados ao projeto preservando as previsões. Revise para evitar duplicidade.') +
+    card('Pago — registros', paid, 'Inclui registros já no contrato; não some novamente ao desembolso projetado.') +
+    card('A pagar — registros', pending, 'Inclui registros já no contrato; não soma todas as previsões do cronograma.');
   $('expenses').innerHTML = state.expenses.map((e, i) => `<tr><td>${esc(e.date)}</td><td>${esc(e.category)}</td><td>${esc(e.description)}</td><td>${money(e.amount)}</td><td><select data-expense-status="${i}"><option ${e.status === 'Pago' ? 'selected' : ''}>Pago</option><option ${e.status === 'A pagar' ? 'selected' : ''}>A pagar</option></select></td><td><select data-expense-link="${i}" ${e.cashTreatment === 'financing' ? 'disabled' : ''}>${paymentOptions(e.groupId, e.paymentId || '')}</select></td><td><select data-expense-treatment="${i}"><option value="budget">Despesa do projeto</option><option value="financing" ${e.cashTreatment === 'financing' ? 'selected' : ''}>Já no contrato</option></select></td><td><button class="danger" data-expense="${i}">Excluir</button></td></tr>`).join('');
-  $('variance').innerHTML = '<table><tr><th>Grupo</th><th>Planejado</th><th>Pago + a pagar</th><th>Saldo</th></tr>' + state.groups.map(g => {
+  $('variance').innerHTML = '<table><tr><th>Grupo</th><th>Planejado</th><th>Pago + a pagar — registros</th><th>Orçamento menos registros (não é caixa)</th></tr>' + state.groups.map(g => {
     const spent = state.expenses.filter(e => e.groupId === g.id).reduce((sum, e) => sum + e.amount, 0);
     return `<tr><td>${esc(g.label)}</td><td>${money(b.values[g.id])}</td><td>${money(spent)}</td><td>${money(b.values[g.id] - spent)}</td></tr>`;
   }).join('') + '</table>';

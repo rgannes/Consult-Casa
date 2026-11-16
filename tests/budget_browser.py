@@ -106,6 +106,43 @@ def run():
             csv = Path(tmp) / 'budget.csv'
             schedule.value.save_as(csv)
             assert 'Construção da residência' in csv.read_text(encoding='utf-8-sig')
+            # Excesso vinculado preserva as outras etapas; sem vínculo exige conciliação.
+            page.evaluate("""() => {
+              const s=CasaModel.defaults();
+              s.groups.forEach(g=>{g.value=0;g.subitems=[];});
+              s.constructionMode='global';s.contingencyMode='manual';s.groups[6].value=100000;
+              s.planning.startDate='2026-11-01';
+              const g=s.budgetSchedule.groups[6];g.mode='manual';
+              g.payments=[30000,40000,30000].map((amount,i)=>({id:'stage:'+i,month:i+1,
+                amount,status:'planned',fixed:false,origin:'manual'}));
+              commit(next=>Object.assign(next,s));
+            }""")
+            page.get_by_role('button', name='4 · Gastos reais').click()
+            page.locator('#category').select_option('construction')
+            page.locator('#expensePaymentLink').select_option('stage:0')
+            page.locator('#date').fill('2026-11-10')
+            for amount in ['20000', '30000']:
+                page.locator('#description').fill('Fundação fictícia '+amount)
+                page.locator('#amount').fill(amount)
+                page.get_by_role('button', name='Registrar', exact=True).click()
+                assert page.evaluate('state.budgetSchedule.groups[6].payments.map(p=>p.amount)') == [30000,40000,30000]
+            totals=page.evaluate('BudgetScheduler.resolve(state).totals')
+            assert totals['projected']==120000 and totals['excess']==20000
+            assert totals['committed']==50000 and totals['pendingForecast']==70000
+            summary=page.locator('#actualSummary').inner_text()
+            assert 'Orçamento original' in summary and 'Desembolso total projetado' in summary
+            assert '120.000,00' in summary and '20.000,00' in summary
+            page.locator('#expensePaymentLink').select_option('')
+            page.locator('#description').fill('Gasto fictício não conciliado')
+            page.locator('#amount').fill('5000')
+            page.get_by_role('button', name='Registrar', exact=True).click()
+            totals=page.evaluate('BudgetScheduler.resolve(state).totals')
+            assert totals['projected']==125000 and totals['unlinked']==5000
+            assert totals['pendingForecast']==70000
+            assert 'não conciliado' in page.locator('#expensePaymentLink').inner_text()
+            page.reload()
+            assert page.evaluate('state.expenses.length')==3
+            assert page.evaluate('BudgetScheduler.resolve(state).totals.projected')==125000
             assert not errors, errors
             assert all(request.startswith(url) for request in requests), requests
             browser.close()

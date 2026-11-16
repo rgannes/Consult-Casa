@@ -107,19 +107,25 @@ test('vários gastos parciais vinculados deixam somente o residual previsto', ()
   assert.equal(r.totals.paid, 10000); assert.equal(sum(r.events), r.totals.budget);
   assert.equal(r.events.filter(e => e.id.startsWith('expense:')).length, 2);
 });
-test('gasto maior que previsão é contado uma vez e consome o saldo automático futuro', () => {
+test('gasto maior que previsão preserva o saldo automático futuro e identifica excesso', () => {
   const s = fixture(), p = group(s).payments[0]; expense(s, p, { amount: 100000 });
   const r = B.resolve(s);
-  assert.equal(r.totals.paid, 100000); assert.equal(r.totals.difference, 0);
-  assert.equal(sum(r.events), r.totals.budget);
+  assert.equal(r.totals.paid, 100000);
+  const excess = 100000 - p.amount;
+  assert.equal(r.totals.difference, -excess);
+  assert.equal(r.totals.excess, excess);
+  assert.equal(sum(r.events), r.totals.budget + excess);
+  assert.deepEqual(group(r.state).payments.filter(row => row.id !== p.id), group(s).payments.filter(row => row.id !== p.id));
   assert.ok(r.warnings.some(w => w.includes('excedem o previsto')));
 });
-test('gasto sem vínculo consome o orçamento automático sem somar novamente o grupo completo', () => {
+test('gasto sem vínculo fica não conciliado sem reduzir o orçamento automático', () => {
   const s = fixture(); expense(s, null, { amount: 1000 });
   const r = B.resolve(s);
-  assert.equal(sum(group(r.state).payments), 749000);
-  assert.equal(r.totals.programmed, r.totals.budget);
-  assert.equal(P.calculate(s).flow.totals.constructionPayments, 750000);
+  assert.equal(sum(group(r.state).payments), 750000);
+  assert.equal(r.totals.programmed, r.totals.budget + 1000);
+  assert.equal(r.totals.unlinked, 1000);
+  assert.ok(r.warnings.some(w => w.includes('não conciliado')));
+  assert.equal(P.calculate(s).flow.totals.constructionPayments, 751000);
 });
 test('pago declarado e gasto vinculado não duplicam o realizado', () => {
   const s = fixture(), p = group(s).payments[0]; p.status = 'paid'; expense(s, p);
@@ -188,7 +194,7 @@ test('importação v2 anterior adiciona programação sem apagar gastos e orçam
   const s = fixture(); expense(s, null); delete s.budgetSchedule;
   const imported = M.readImport(JSON.stringify({ type: 'consult-casa-backup', version: 2, state: s }));
   assert.deepEqual(imported.expenses, s.expenses); assert.deepEqual(imported.groups, s.groups);
-  assert.equal(B.resolve(imported).totals.difference, 0);
+  assert.equal(B.resolve(imported).totals.difference, -1000);
   assert.deepEqual(M.readImport(M.exportData(imported)), imported);
 });
 test('recuperação de cenário conserva pagamentos confirmados e gastos posteriores', () => {
@@ -226,6 +232,85 @@ test('gastos com identificadores duplicados são preservados e bloqueiam um flux
 });
 test('vínculo órfão é sinalizado sem apagar ou repetir o gasto no total', () => {
   const s = fixture(); expense(s, null, { paymentId: 'ausente' });
-  const r = B.resolve(s); assert.equal(r.totals.difference, 0); assert.equal(r.totals.paid, 1000);
+  const r = B.resolve(s); assert.equal(r.totals.difference, -1000); assert.equal(r.totals.paid, 1000);
   assert.ok(r.warnings.some(w => w.includes('não encontrado')));
+});
+
+function overrunFixture(manual = false) {
+  const s = fixture();
+  s.groups.forEach(g => { g.value = 0; g.subitems = []; });
+  s.constructionMode = 'global'; s.contingencyMode = 'manual'; s.groups[6].value = 100000;
+  s.planning.constructionMonths = 3; s.planning.constructionDelay = 0;
+  const checked = M.validate(s);
+  if (manual) {
+    const g = group(checked); g.mode = 'manual';
+    g.payments = [30000, 40000, 30000].map((amount, i) => ({ id: `stage:${i}`, month: i + 1,
+      amount, status: 'planned', fixed: false, origin: 'manual' }));
+  }
+  return checked;
+}
+for (const manual of [false, true]) {
+  for (const entries of [[20000], [50000], [20000, 30000]]) {
+    test(`${manual ? 'manual' : 'automático'}: vínculos ${entries.join('+')} preservam previsões independentes e orçamento`, () => {
+      let s = overrunFixture(manual);
+      const original = structuredClone(s), p = group(s).payments[0];
+      entries.forEach((amount, i) => expense(s, p, { id: `partial:${i}`, amount, status: i ? 'A pagar' : 'Pago' }));
+      const expenses = structuredClone(s.expenses);
+      s = M.validate(s);
+      const r = B.resolve(s), linkedTotal = entries.reduce((a, b) => a + b, 0);
+      const excess = Math.round(Math.max(0, linkedTotal - p.amount) * 100) / 100;
+      assert.deepEqual(group(s).payments, group(original).payments);
+      assert.deepEqual(s.groups, original.groups);
+      assert.deepEqual(s.expenses, expenses);
+      assert.equal(B.amounts(s, { ...p, groupId: 'construction', treatment: 'budget' }).remainder, Math.round(Math.max(0, p.amount - linkedTotal) * 100) / 100);
+      assert.equal(r.totals.projected, 100000 + excess);
+      assert.equal(r.totals.excess, excess);
+      assert.equal(r.totals.committed, linkedTotal);
+      assert.equal(r.totals.pendingForecast, Math.round((r.totals.projected - linkedTotal) * 100) / 100);
+      assert.equal(r.totals.overBudget, excess);
+      assert.deepEqual(B.resolve(r.state), r);
+    });
+  }
+  test(`${manual ? 'manual' : 'automático'}: sem vínculo conserva todas as previsões e sinaliza conciliação pendente`, () => {
+    const s = overrunFixture(manual), before = structuredClone(group(s).payments);
+    expense(s, null, { amount: 20000 });
+    const r = B.resolve(s);
+    assert.deepEqual(group(r.state).payments, before);
+    assert.equal(r.totals.projected, 120000);
+    assert.equal(r.totals.unlinked, 20000);
+    assert.equal(r.totals.pendingForecast, 100000);
+    assert.equal(r.totals.excess, 0);
+    assert.ok(r.warnings.some(w => w.includes('não conciliado')));
+  });
+}
+test('Cenários incluem excesso sem aumentar crédito ou criar recursos próprios inexistentes', () => {
+  const H = require('../housing');
+  let s = overrunFixture(true);
+  Object.assign(s, { cash: 20000, preservedReserve: 0, income: 0, essential: 0, monthlySavings: 0, rent: 0 });
+  s.housing = H.defaults(s); s.housing.startDate = '2026-11-01';
+  Object.assign(s.housing.paths.rentBuild.second, { entry: 20000, months: 12, buildMonths: 3, cet: 0 });
+  const before = H.calculate(s), p = group(s).payments[0];
+  expense(s, p, { amount: 50000 }); s = M.validate(s);
+  const after = H.calculate(s);
+  assert.equal(before.stages[0].funding.principal, 80000);
+  assert.equal(after.stages[0].funding.principal, 80000);
+  assert.equal(after.summary.projectPayments, 120000);
+  assert.equal(after.ledgers.personal.totals.transfers, 20000);
+  assert.equal(after.ledgers.project.totals.closingCash, -20000);
+  assert.ok(after.rows.some(row => row.constructionShortage));
+  assert.deepEqual(after.rows.map(row => row.constructionPayments).slice(0,3), [50000,40000,30000]);
+});
+test('exemplo 30/40/30 automático: excesso na fundação mantém estrutura e acabamento', () => {
+  let s = overrunFixture();
+  const structure = group(s).payments[1]; structure.amount = 40000; structure.fixed = true;
+  s = M.validate(s);
+  assert.deepEqual(group(s).payments.map(p => p.amount), [30000,40000,30000]);
+  expense(s, group(s).payments[0], { amount: 50000 });
+  const r = B.resolve(s);
+  assert.deepEqual(group(r.state).payments.map(p => p.amount), [30000,40000,30000]);
+  assert.deepEqual(r.events.filter(e => e.groupId === 'construction').sort((a,b) => a.month-b.month).map(e => e.amount), [50000,40000,30000]);
+  assert.equal(r.totals.budget, 100000);
+  assert.equal(r.totals.projected, 120000);
+  assert.equal(r.totals.overBudget, 20000);
+  assert.equal(r.totals.excess, 20000);
 });

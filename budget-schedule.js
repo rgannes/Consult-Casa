@@ -104,14 +104,14 @@
     const state = clone(input);
     if (!state.budgetSchedule) state.budgetSchedule = defaults();
     validate(state);
-    const b = budget(state), legacy = legacyPayments(state), pool = allPayments(state);
-    const linkedExpense = e => e.paymentId && pool.some(p => ['budget', 'additional'].includes(p.treatment) && p.id === e.paymentId && (p.treatment === 'additional' || p.groupId === e.groupId));
+    const b = budget(state), legacy = legacyPayments(state);
     for (const g of state.budgetSchedule.groups) {
       if (g.mode === 'manual') continue;
       const keep = g.payments.filter(p => protectedPayment(state, g, p));
       const external = legacy.filter(p => p.treatment === 'budget' && p.groupId === g.groupId);
-      const unlinked = state.expenses.filter(e => e.cashTreatment !== 'financing' && e.groupId === g.groupId && !linkedExpense(e));
-      const used = E.cents([...keep.map(p => ({ ...p, groupId: g.groupId, treatment: 'budget' })), ...external].reduce((s, p) => s + amounts(state, p).effective, 0) + unlinked.reduce((s, e) => s + E.cents(e.amount), 0));
+      // Reserve only each payment's original forecast. Linked overruns and
+      // unlinked expenses must never consume independent automatic forecasts.
+      const used = E.cents([...keep, ...external].reduce((sum, p) => sum + E.cents(p.amount), 0));
       const remaining = Math.max(0, Math.round((E.cents(b.values[g.groupId]) - used) * 100));
       const w = windowFor(state, g);
       if (w.start + w.months - 1 > 1200) throw Error('Cronograma do grupo ultrapassa 1200 meses.');
@@ -156,11 +156,14 @@
         issues.push(message); warnings.push(message); return fallback;
       }
     };
-    let paidBudget = 0, futureBudget = 0, additional = 0;
+    let paidBudget = 0, futureBudget = 0, additional = 0, committed = 0, pendingForecast = 0, excess = 0, unlinkedTotal = 0;
     const groupReports = state.groups.map(g => ({ groupId: g.id, label: g.label, budget: E.cents(b.values[g.id]), programmed: 0, paid: 0, future: 0 }));
     const reports = new Map(groupReports.map(r => [r.groupId, r]));
     for (const p of payments.filter(p => ['budget', 'additional'].includes(p.treatment))) {
       const a = amounts(state, p);
+      committed += a.linked.reduce((sum, e) => sum + E.cents(e.amount), 0) + (p.status !== 'planned' ? a.remainder : 0);
+      if (p.status === 'planned') pendingForecast += a.remainder;
+      excess += Math.max(0, a.effective - E.cents(p.amount));
       if (a.effective > E.cents(p.amount)) warnings.push(`Pagamento ${p.id}: registros vinculados excedem o previsto; a diferença foi incluída uma única vez.`);
       if (p.status === 'paid' && a.linked.some(e => e.status === 'A pagar')) warnings.push(`Pagamento ${p.id} marcado como pago contém compromisso a pagar; revise a situação.`);
       for (const e of a.linked) {
@@ -177,9 +180,11 @@
       expenseIds.add(String(e.id));
       if (e.cashTreatment === 'financing') continue;
       if (linked.has(e)) continue;
-      if (e.paymentId && !byId.has(e.paymentId)) warnings.push(`Vínculo ${e.paymentId} não encontrado. O gasto “${e.description}” foi preservado e contado uma vez no seu grupo.`);
+      if (e.paymentId && !byId.has(e.paymentId)) warnings.push(`Vínculo ${e.paymentId} não encontrado. O gasto “${e.description}” foi preservado como não conciliado, sem reduzir outras previsões.`);
       if (e.paymentId && byId.has(e.paymentId)) warnings.push(`O grupo do gasto “${e.description}” difere do pagamento vinculado. Revise o vínculo.`);
       const r = reports.get(e.groupId), amount = E.cents(e.amount);
+      committed += amount; unlinkedTotal += amount;
+      warnings.push(`Gasto não conciliado: “${e.description}”, ${amount.toFixed(2)}. Vincule à previsão correspondente; nenhuma outra previsão foi reduzida.`);
       r.programmed += amount; if (e.status === 'Pago') r.paid += amount; else r.future += amount;
       add({ id: `expense:${e.id}`, groupId: e.groupId, month: expenseMonth(e), amount, label: e.description, paid: e.status === 'Pago' });
     }
@@ -198,7 +203,10 @@
     return { state, payments, events, groupReports, warnings, issues, review, timeline: t,
       totals: { budget: E.cents(b.total), programmed, paid: E.cents(paidBudget), future: E.cents(futureBudget),
         additional: E.cents(additional), difference: E.cents(E.cents(b.total) - programmed),
-        pastPaid: total(excludedPast), flowPayments: total(events) } };
+        pastPaid: total(excludedPast), flowPayments: total(events),
+        committed: E.cents(committed), pendingForecast: E.cents(pendingForecast), excess: E.cents(excess),
+        unlinked: E.cents(unlinkedTotal), projected: E.cents(programmed + additional),
+        overBudget: E.cents(Math.max(0, programmed + additional - b.total)) } };
   }
   function preserveProtected(current, target) {
     if (!current.budgetSchedule) return target;
