@@ -269,15 +269,42 @@
     const config = defaults(); delete config.schemaVersion; delete config.expenses; delete config.savedScenarios;
     return JSON.stringify({ type: 'consult-casa-config', version: VERSION, config }, null, 2);
   }
+  // localStorage is atomic per key, not across keys. Capture every original
+  // before writing, and undo completed writes if a later step fails.
+  function writeStoredChanges(storage, changes) {
+    const originals = changes.map(([key]) => storage.getItem(key));
+    let completed = 0;
+    try {
+      for (const [key, value] of changes) {
+        storage.setItem(key, value);
+        completed++;
+      }
+    } catch (error) {
+      const failedRecovery = [];
+      for (let i = completed - 1; i >= 0; i--) {
+        const key = changes[i][0];
+        try {
+          if (originals[i] === null) storage.removeItem(key);
+          else storage.setItem(key, originals[i]);
+        } catch { failedRecovery.push(key); }
+      }
+      if (failedRecovery.length) {
+        throw new Error(`Falha ao salvar; a recuperação do armazenamento também falhou (${failedRecovery.join(', ')}). O novo planejamento não foi salvo. Preserve os dados locais antes de tentar novamente.`, { cause: error });
+      }
+      throw error;
+    }
+  }
   function persist(storage, state, backup = false) {
     const raw = exportData(state);
-    // Valida e guarda o anterior ANTES de substituí-lo. Falha no backup impede a substituição.
+    // Validate before writing. Preserve both original keys if saving fails.
     const previous = storage.getItem(STORAGE_KEY);
+    const changes = [];
     if (backup && previous) {
       readImport(previous);
-      storage.setItem(BACKUP_KEY, previous);
+      changes.push([BACKUP_KEY, previous]);
     }
-    storage.setItem(STORAGE_KEY, raw);
+    changes.push([STORAGE_KEY, raw]);
+    writeStoredChanges(storage, changes);
   }
   function load(storage) {
     const raw = storage.getItem(STORAGE_KEY);
@@ -300,14 +327,16 @@
         if (!allowInvalidPrevious) throw error;
         // Recuperação explicitamente autorizada: conserva o bruto antes de restaurar o válido.
         if (storage.getItem(RECOVERY_KEY) !== null) fail('Já existe um original arquivado. Exporte e remova esse arquivo local antes de outra recuperação assistida.');
-        storage.setItem(RECOVERY_KEY, previous);
-        if (current) storage.setItem(BACKUP_KEY, exportData(current));
-        storage.setItem(STORAGE_KEY, exportData(state));
+        const changes = [[RECOVERY_KEY, previous]];
+        if (current) changes.push([BACKUP_KEY, exportData(current)]);
+        changes.push([STORAGE_KEY, exportData(state)]);
+        writeStoredChanges(storage, changes);
         return state;
       }
     }
-    if (previous === null && current) storage.setItem(BACKUP_KEY, exportData(current));
-    persist(storage, state, true);
+    if (previous === null && current) {
+      writeStoredChanges(storage, [[BACKUP_KEY, exportData(current)], [STORAGE_KEY, exportData(state)]]);
+    } else persist(storage, state, true);
     return state;
   }
   function restoreBackup(storage, current, allowInvalidPrevious = false) {

@@ -217,3 +217,92 @@ test('falha no backup impede substituir o estado atual', () => {
   assert.throws(() => M.importInto(blocked, M.exportData(M.applyPreset(s, 'elevado')), s));
   assert.equal(store.getItem(M.STORAGE_KEY), before);
 });
+
+function failingStorage(initial, fail) {
+  const data = new Map(initial), calls = [];
+  return {
+    data, calls,
+    getItem(key) { calls.push(['get', key]); if (fail('get', key, undefined, calls)) throw Error('Leitura bloqueada'); return data.get(key) ?? null; },
+    setItem(key, value) { calls.push(['set', key, value]); if (fail('set', key, value, calls)) { const error = Error('Espaço insuficiente'); error.name = 'QuotaExceededError'; throw error; } data.set(key, String(value)); },
+    removeItem(key) { calls.push(['remove', key]); if (fail('remove', key, undefined, calls)) throw Error('Remoção bloqueada'); data.delete(key); }
+  };
+}
+function backupStates() {
+  return [1,2,3].map(cash => { const state=M.defaults(); state.cash=cash; return {state,raw:M.exportData(state)}; });
+}
+for (const backupExists of [false,true]) {
+  test(`falha de espaço no planejamento restaura backup ${backupExists ? 'existente' : 'ausente'} exatamente`, () => {
+    const [a,b,c]=backupStates(), entries=[[M.STORAGE_KEY,b.raw]];
+    if (backupExists) entries.push([M.BACKUP_KEY,a.raw]);
+    const store=failingStorage(entries,(op,key)=>op==='set' && key===M.STORAGE_KEY);
+    assert.throws(()=>M.persist(store,c.state,true),{name:'QuotaExceededError'});
+    assert.deepEqual([...store.data],entries);
+    assert.ok(store.calls.some(([op,key])=>op===(backupExists?'set':'remove') && key===M.BACKUP_KEY));
+  });
+}
+test('falha ao escrever backup preserva planejamento e backup anteriores', () => {
+  const [a,b,c]=backupStates(), entries=[[M.STORAGE_KEY,b.raw],[M.BACKUP_KEY,a.raw]];
+  const store=failingStorage(entries,(op,key)=>op==='set' && key===M.BACKUP_KEY);
+  assert.throws(()=>M.persist(store,c.state,true),{name:'QuotaExceededError'});
+  assert.deepEqual([...store.data],entries);
+  assert.ok(!store.calls.some(([op,key])=>op==='set' && key===M.STORAGE_KEY));
+});
+test('falha de leitura do backup aborta antes de qualquer escrita', () => {
+  const [a,b,c]=backupStates(), entries=[[M.STORAGE_KEY,b.raw],[M.BACKUP_KEY,a.raw]];
+  const store=failingStorage(entries,(op,key)=>op==='get' && key===M.BACKUP_KEY);
+  assert.throws(()=>M.persist(store,c.state,true),/Leitura bloqueada/);
+  assert.deepEqual([...store.data],entries);
+  assert.ok(!store.calls.some(([op])=>op==='set'));
+});
+test('salvar sem rotação não toca no backup e preserva o atual ao falhar', () => {
+  const [a,b,c]=backupStates(), entries=[[M.STORAGE_KEY,b.raw],[M.BACKUP_KEY,a.raw]];
+  const store=failingStorage(entries,(op,key)=>op==='set' && key===M.STORAGE_KEY);
+  assert.throws(()=>M.persist(store,c.state),{name:'QuotaExceededError'});
+  assert.deepEqual([...store.data],entries);
+  assert.ok(!store.calls.some(([,key])=>key===M.BACKUP_KEY));
+});
+test('falha em restauração de backup preserva ambas as versões para nova tentativa', () => {
+  const [a,b]=backupStates(), entries=[[M.STORAGE_KEY,b.raw],[M.BACKUP_KEY,a.raw]];
+  let blocked=true;
+  const store=failingStorage(entries,(op,key)=>blocked && op==='set' && key===M.STORAGE_KEY);
+  assert.throws(()=>M.restoreBackup(store,b.state));assert.deepEqual([...store.data],entries);
+  blocked=false;assert.equal(M.restoreBackup(store,b.state).cash,1);
+  assert.equal(M.load(store).state.cash,1);assert.equal(M.readImport(store.getItem(M.BACKUP_KEY)).cash,2);
+});
+test('primeira importação com planejamento em memória desfaz backup se gravação falhar', () => {
+  const [a,b,c]=backupStates(), entries=[[M.BACKUP_KEY,a.raw]];
+  const store=failingStorage(entries,(op,key)=>op==='set' && key===M.STORAGE_KEY);
+  assert.throws(()=>M.importInto(store,c.raw,b.state));assert.deepEqual([...store.data],entries);
+});
+for (const key of [M.RECOVERY_KEY,M.BACKUP_KEY,M.STORAGE_KEY]) {
+  test(`recuperação de dados inválidos desfaz todas as escritas quando falha ${key}`, () => {
+    const [a,b,c]=backupStates(), entries=[[M.STORAGE_KEY,'{invalid'],[M.BACKUP_KEY,a.raw]];
+    const store=failingStorage(entries,(op,target)=>op==='set' && target===key);
+    assert.throws(()=>M.importInto(store,c.raw,b.state,true));
+    assert.deepEqual([...store.data],entries);
+  });
+}
+test('falha da recuperação é explícita, preserva causa e ainda tenta recuperar outras chaves', () => {
+  const [a,b,c]=backupStates(), entries=[[M.STORAGE_KEY,'{invalid'],[M.BACKUP_KEY,a.raw]];
+  const store=failingStorage(entries,(op,key,value)=>op==='set' && (key===M.STORAGE_KEY || key===M.BACKUP_KEY && value===a.raw));
+  assert.throws(()=>M.importInto(store,c.raw,b.state,true),error=>{
+    assert.match(error.message,/recuperação.*também falhou/);
+    assert.equal(error.cause.name,'QuotaExceededError');return true;
+  });
+  assert.equal(store.data.get(M.STORAGE_KEY),'{invalid');
+  assert.equal(store.data.has(M.RECOVERY_KEY),false);
+  assert.ok(store.calls.some(([op,key])=>op==='remove' && key===M.RECOVERY_KEY));
+});
+test('falha ao remover backup recém-criado não é reportada como sucesso', () => {
+  const [,b,c]=backupStates();
+  const store=failingStorage([[M.STORAGE_KEY,b.raw]],(op,key)=>op==='set' && key===M.STORAGE_KEY || op==='remove');
+  assert.throws(()=>M.persist(store,c.state,true),/recuperação.*também falhou/);
+  assert.equal(store.data.get(M.STORAGE_KEY),b.raw);
+});
+test('sucesso preserva formatos e rotação normal de backup', () => {
+  const [a,b,c]=backupStates();const store=failingStorage([[M.STORAGE_KEY,b.raw],[M.BACKUP_KEY,a.raw]],()=>false);
+  M.persist(store,c.state,true);
+  assert.equal(store.data.get(M.STORAGE_KEY),c.raw);assert.equal(store.data.get(M.BACKUP_KEY),b.raw);
+  assert.equal(M.restoreBackup(store,c.state).cash,2);
+  assert.equal(M.restoreBackup(store,b.state).cash,3);
+});
