@@ -27,7 +27,7 @@
       'Soma dos aportes próprios efetivamente transferidos nos meses desta etapa no ano. Não é uma nova despesa além das transferências mensais, nem o saldo do caixa da obra. O limite de dinheiro pessoal foi aplicado mês a mês.'
     ],
     'Poupança pessoal possível no mês': [
-      'Parte da Capacidade média de poupança mensal de Premissas, ajustada a mudanças na renda e nas despesas. O modelo mantém comprometida a parcela da renda que não foi destinada à poupança e ajusta o aluguel sem descontá-lo duas vezes. Dessa base, subtrai compras/custos de apartamentos, encargos/prestações/quitações e transferências efetivas para a obra no mês. O mínimo mostrado é R$ 0: não apresenta poupança negativa. Não soma novamente renda menos despesas à poupança informada.',
+      'A base é o menor valor entre a Capacidade média de poupança mensal informada e a diferença positiva entre renda líquida e despesas mensais atuais de Premissas (zero quando as despesas igualam ou superam a renda). Não usa referências históricas. Depois, ajusta o aluguel sem descontá-lo duas vezes. Dessa base, subtrai compras/custos de apartamentos, encargos/prestações/quitações e transferências efetivas para a obra no mês. O mínimo mostrado é R$ 0: não apresenta poupança negativa. Não soma novamente renda menos despesas à poupança informada.',
       ''
     ],
     'Poupança pessoal possível no ano': [

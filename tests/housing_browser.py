@@ -86,7 +86,7 @@ def run():
             page.locator('#field-includeFamilyHelp').uncheck()
             change('#field-essential', 9000)
             assert page.evaluate('Housing.calculate(state).initialCash') == 120000
-            assert page.evaluate('Housing.calculate(state).baseCapacity') == 2000
+            assert page.evaluate('Housing.calculate(state).baseCapacity') == 3000
             page.get_by_role('button', name='3 · Cenários').click()
             page.locator('#housingPath').select_option('buyThenBuild')
             change('#home-stage2Month', 3)
@@ -118,6 +118,30 @@ def run():
             page.set_viewport_size({'width':390,'height':844})
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
             page.screenshot(path='/tmp/vecto-cenarios-mobile.png', full_page=True)
+            # Regressão: a mesma premissa visível independe do histórico e sobrevive à importação.
+            page.evaluate("""() => {
+                const s=CasaModel.defaults();
+                Object.assign(s,{cash:100000,preservedReserve:0,income:12600,essential:8600,
+                  monthlySavings:3000,rent:2720,rentIncludedInExpenses:true,largerApartment:100000});
+                s.housing=Housing.defaults(s);s.housing.selectedPath='buyLarger';s.housing.startDate='2026-11-01';
+                Object.assign(s.housing.paths.buyLarger.second,{entry:62146.60,credit:37853.40,months:12,cet:0});
+                commit(next=>Object.assign(next,s));
+            }""")
+            page.get_by_role('button', name='1 · Premissas').click()
+            change('#field-income',11600)
+            assert page.evaluate('Housing.calculate(state).baseCapacity')==3000
+            assert page.evaluate('state.housing.cashBaseline.income')==12600
+            page.get_by_role('button', name='3 · Cenários').click()
+            assert page.evaluate("Housing.calculate(state).rows.find(r=>r.date.startsWith('2026-12')).savingPossible")==2565.55
+            assert '2.565,55' in page.locator('#housingTimelines').inner_text()
+            old_backup=page.evaluate('CasaModel.exportData(state)')
+            page.locator('#import').set_input_files({'name':'old-baseline-fictional.json','mimeType':'application/json','buffer':old_backup.encode()})
+            page.wait_for_function("document.getElementById('storageMessage').textContent.includes('Arquivo validado')")
+            page.reload()
+            page.get_by_role('button', name='3 · Cenários').click()
+            assert page.evaluate('state.housing.cashBaseline.income')==12600
+            assert page.evaluate("Housing.calculate(state).rows.find(r=>r.date.startsWith('2026-12')).savingPossible")==2565.55
+            assert '2.565,55' in page.locator('#housingTimelines').inner_text()
             assert not errors, errors
             assert all(request.startswith(url) for request in requests), requests
             browser.close()

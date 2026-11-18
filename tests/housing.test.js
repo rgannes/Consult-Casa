@@ -45,10 +45,10 @@ test('ajuda entra no início, reserva já separada não é descontada novamente'
   s.includeFamilyHelp = false; assert.equal(H.calculate(s).initialCash, 120000);
   s.reserveAlreadyExcluded = false; assert.equal(H.calculate(s).initialCash, 100000);
 });
-test('despesas atualizadas em Premissas ajustam a poupança sem duplicar renda e aportes', () => {
+test('premissas atuais limitam poupança sem compromissos históricos nem duplicar renda', () => {
   let s = M.validate(fixture()); assert.equal(H.calculate(s).baseCapacity, 3000);
-  s.essential += 1000; s = M.validate(s); assert.equal(H.calculate(s).baseCapacity, 2000);
-  s.income += 500; s = M.validate(s); assert.equal(H.calculate(s).baseCapacity, 2500);
+  s.essential += 1000; s = M.validate(s); assert.equal(H.calculate(s).baseCapacity, 3000);
+  s.income += 500; s = M.validate(s); assert.equal(H.calculate(s).baseCapacity, 3000);
   s.monthlySavings = 1000; s = M.validate(s); assert.equal(H.calculate(s).baseCapacity, 1000);
 });
 test('premissas incompatíveis geram aviso e capacidade conservadora', () => {
@@ -133,4 +133,81 @@ test('backup v2 anterior recebe apenas extensão e conserva os módulos existent
   const s = fixture(); delete s.housing; delete s.bankPercent; delete s.comfortablePayment; delete s.rent; delete s.rentIncludedInExpenses;
   const old = JSON.stringify(s), migrated = M.readImport(JSON.stringify({ type: 'consult-casa-backup', version: 2, state: s }));
   assert.ok(migrated.housing); assert.deepEqual(migrated.groups, JSON.parse(old).groups); assert.deepEqual(migrated.planning, JSON.parse(old).planning);
+});
+
+function currentSavingsFixture(baseline = { income: 12600, expenses: 8600, savings: 3000 }) {
+  const s = fixture();
+  Object.assign(s, { cash: 100000, income: 11600, essential: 8600, monthlySavings: 3000,
+    rent: 2720, rentIncludedInExpenses: true, largerApartment: 100000 });
+  s.housing.startDate = '2026-11-01';
+  s.housing.cashBaseline = structuredClone(baseline);
+  Object.assign(s.housing.paths.buyLarger.second, { entry: 62146.60, credit: 37853.40, months: 12, cet: 0 });
+  return M.validate(s);
+}
+function decemberSavings(s) {
+  return H.calculate(s).rows.find(row => row.date.startsWith('2026-12'));
+}
+test('dezembro de 2026: poupança 2565,55 independe da referência histórica invisível', () => {
+  const baselines = [
+    { income: 11600, expenses: 8600, savings: 3000 },
+    { income: 12600, expenses: 8600, savings: 3000 },
+    { income: 11600, expenses: 7600, savings: 3000 },
+    { income: 100000, expenses: 0, savings: 3000 }
+  ];
+  let expected;
+  for (const baseline of baselines) {
+    const s = currentSavingsFixture(baseline), before = structuredClone(s), result = H.calculate(s), row = decemberSavings(s);
+    assert.equal(result.baseCapacity, 3000);
+    assert.equal(row.capacity, 5720); assert.equal(row.financing, 3154.45);
+    assert.equal(row.projectPayments, 0); assert.equal(row.transferToProject, 0);
+    assert.equal(row.savingPossible, 2565.55);
+    assert.deepEqual(s, before);
+    if (expected) assert.deepEqual(result, expected);
+    expected = result;
+  }
+});
+for (const [income, essential, savings, expected] of [
+  [11600,8600,3000,3000], [11600,8600,1000,1000], [11600,10000,3000,1600],
+  [11600,11600,3000,0], [11600,12600,3000,0], [20000,8600,3000,3000], [11600,8600,0,0]
+]) test(`capacidade atual: renda ${income}, despesas ${essential}, poupança ${savings} resulta ${expected}`, () => {
+  const s = currentSavingsFixture(); Object.assign(s, { income, essential, monthlySavings: savings });
+  assert.equal(H.calculate(M.validate(s)).baseCapacity, expected);
+});
+test('mudanças de premissas recalculam capacidade sem depender da ordem de edição', () => {
+  let a = currentSavingsFixture(), b = currentSavingsFixture({ income: 50000, expenses: 1000, savings: 3000 });
+  a.income = 12000; a = M.validate(a); a.essential = 10000; a = M.validate(a);
+  b.essential = 10000; b = M.validate(b); b.income = 12000; b = M.validate(b);
+  assert.equal(H.calculate(a).baseCapacity, 2000);
+  assert.deepEqual(H.calculate(a), H.calculate(b));
+});
+test('piso zero da poupança não mascara o déficit do caixa pessoal', () => {
+  const s = currentSavingsFixture(); Object.assign(s, { monthlySavings: 1000, rent: 0, cash: 0 });
+  const row = decemberSavings(M.validate(s));
+  assert.equal(row.savingPossible, 0);
+  assert.ok(row.closingCash < 0);
+  assert.equal(row.financing, 3154.45);
+});
+test('backup antigo com cashBaseline permanece íntegro e usa premissas atuais na importação e restauração', () => {
+  const s = currentSavingsFixture(), baseline = structuredClone(s.housing.cashBaseline), raw = M.exportData(s);
+  const imported = M.readImport(raw);
+  assert.deepEqual(imported, s); assert.deepEqual(imported.housing.cashBaseline, baseline);
+  assert.equal(decemberSavings(imported).savingPossible, 2565.55);
+  const values = new Map(), store = { getItem: key => values.get(key) ?? null,
+    setItem: (key,value) => values.set(key,String(value)), removeItem: key => values.delete(key) };
+  M.persist(store, s);
+  const changed = structuredClone(s); changed.monthlySavings = 1000;
+  M.importInto(store, M.exportData(changed), s);
+  const restored = M.restoreBackup(store, changed);
+  assert.deepEqual(restored, s); assert.equal(decemberSavings(restored).savingPossible, 2565.55);
+});
+test('recuperar cenário antigo preserva referência e gastos atuais sem desconto histórico', () => {
+  let s = currentSavingsFixture(); const baseline = structuredClone(s.housing.cashBaseline);
+  s = M.saveScenario(s, 'Cenário fictício anterior', 'baseline-regression');
+  s.income = 8000; s.essential = 7500;
+  s.expenses.push({ id: 'preserve', category: 'Terreno', groupId: 'land', description: 'Gasto fictício', date: '2026-11-10', amount: 1, status: 'Pago', paymentId: '', cashTreatment: 'budget' });
+  const expenses = structuredClone(s.expenses);
+  const restored = M.restoreScenario(M.validate(s), 'baseline-regression');
+  assert.deepEqual(restored.expenses, expenses); assert.deepEqual(restored.housing.cashBaseline, baseline);
+  assert.equal(restored.income, 11600); assert.equal(restored.essential, 8600);
+  assert.equal(decemberSavings(restored).savingPossible, 2565.55);
 });
