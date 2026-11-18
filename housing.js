@@ -82,10 +82,8 @@
     return state;
   }
   function capacity(state) {
-    const b = state.housing.cashBaseline;
-    // A parcela do saldo renda-despesa não declarada como poupança continua comprometida.
-    const unallocated = Math.max(0, b.income - b.expenses - b.savings);
-    return E.cents(Math.min(state.income - state.essential, state.income - state.essential - unallocated));
+    // Somente premissas atuais; cashBaseline permanece compatível com backups antigos.
+    return E.cents(Math.min(state.monthlySavings, Math.max(0, state.income - state.essential)));
   }
   function amounts(cost, entry, credit, available, extraCosts = 0) {
     if (entry !== null && entry > cost) throw Error('A entrada não pode superar o custo a financiar.');
